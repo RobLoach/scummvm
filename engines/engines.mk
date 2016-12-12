@@ -20,6 +20,11 @@ DEFINES += -DENABLE_ACCESS=$(ENABLE_ACCESS)
 MODULES += engines/access
 endif
 
+ifdef ENABLE_ADL
+DEFINES += -DENABLE_ADL=$(ENABLE_ADL)
+MODULES += engines/adl
+endif
+
 ifdef ENABLE_AGI
 DEFINES += -DENABLE_AGI=$(ENABLE_AGI)
 MODULES += engines/agi
@@ -69,6 +74,16 @@ DEFINES += -DENABLE_CRUISE=$(ENABLE_CRUISE)
 MODULES += engines/cruise
 endif
 
+ifdef ENABLE_DIRECTOR
+DEFINES += -DENABLE_DIRECTOR=$(ENABLE_DIRECTOR)
+MODULES += engines/director
+endif
+
+ifdef ENABLE_DM
+DEFINES += -DENABLE_DM=$(ENABLE_DM)
+MODULES += engines/dm
+endif
+
 ifdef ENABLE_DRACI
 DEFINES += -DENABLE_DRACI=$(ENABLE_DRACI)
 MODULES += engines/draci
@@ -87,6 +102,11 @@ endif
 ifdef ENABLE_FULLPIPE
 DEFINES += -DENABLE_FULLPIPE=$(ENABLE_FULLPIPE)
 MODULES += engines/fullpipe
+endif
+
+ifdef ENABLE_GNAP
+DEFINES += -DENABLE_GNAP=$(ENABLE_GNAP)
+MODULES += engines/gnap
 endif
 
 ifdef ENABLE_GOB
@@ -139,6 +159,11 @@ endif
 ifdef ENABLE_LURE
 DEFINES += -DENABLE_LURE=$(ENABLE_LURE)
 MODULES += engines/lure
+endif
+
+ifdef ENABLE_MACVENTURE
+DEFINES += -DENABLE_MACVENTURE=$(ENABLE_MACVENTURE)
+MODULES += engines/macventure
 endif
 
 ifdef ENABLE_MADE
@@ -260,6 +285,11 @@ DEFINES += -DENABLE_TINSEL=$(ENABLE_TINSEL)
 MODULES += engines/tinsel
 endif
 
+ifdef ENABLE_TITANIC
+DEFINES += -DENABLE_TITANIC=$(ENABLE_TITANIC)
+MODULES += engines/titanic
+endif
+
 ifdef ENABLE_TOLTECS
 DEFINES += -DENABLE_TOLTECS=$(ENABLE_TOLTECS)
 MODULES += engines/toltecs
@@ -295,9 +325,19 @@ DEFINES += -DENABLE_VOYEUR=$(ENABLE_VOYEUR)
 MODULES += engines/voyeur
 endif
 
+ifdef ENABLE_WAGE
+DEFINES += -DENABLE_WAGE=$(ENABLE_WAGE)
+MODULES += engines/wage
+endif
+
 ifdef ENABLE_WINTERMUTE
 DEFINES += -DENABLE_WINTERMUTE=$(ENABLE_WINTERMUTE)
 MODULES += engines/wintermute
+endif
+
+ifdef ENABLE_XEEN
+DEFINES += -DENABLE_XEEN=$(ENABLE_XEEN)
+MODULES += engines/xeen
 endif
 
 ifdef ENABLE_ZVISION
