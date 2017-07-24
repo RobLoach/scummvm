@@ -151,20 +151,28 @@ void GfxCursor32::setRestrictedArea(const Common::Rect &rect) {
 
 	mulru(_restrictedArea, Ratio(screenWidth, scriptWidth), Ratio(screenHeight, scriptHeight), 0);
 
+	bool restricted = false;
+
 	if (_position.x < rect.left) {
 		_position.x = rect.left;
+		restricted = true;
 	}
 	if (_position.x >= rect.right) {
 		_position.x = rect.right - 1;
+		restricted = true;
 	}
 	if (_position.y < rect.top) {
 		_position.y = rect.top;
+		restricted = true;
 	}
 	if (_position.y >= rect.bottom) {
 		_position.y = rect.bottom - 1;
+		restricted = true;
 	}
 
-	g_system->warpMouse(_position.x, _position.y);
+	if (restricted) {
+		g_system->warpMouse(_position.x, _position.y);
+	}
 }
 
 void GfxCursor32::clearRestrictedArea() {
@@ -181,7 +189,7 @@ void GfxCursor32::setView(const GuiResourceId viewId, const int16 loopNo, const 
 	if (_macCursorRemap.empty() && viewId != -1) {
 		CelObjView view(viewId, loopNo, celNo);
 
-		_hotSpot = view._displace;
+		_hotSpot = view._origin;
 		_width = view._width;
 		_height = view._height;
 
@@ -243,7 +251,7 @@ void GfxCursor32::setView(const GuiResourceId viewId, const int16 loopNo, const 
 			debug(0, "Mac cursor %d not found", viewNum);
 			return;
 		}
-		Common::MemoryReadStream resStream(resource->data, resource->size);
+		Common::MemoryReadStream resStream(resource->toStream());
 		Graphics::MacCursor *macCursor = new Graphics::MacCursor();
 
 		if (!macCursor->readFromStream(resStream)) {
@@ -277,6 +285,7 @@ void GfxCursor32::setView(const GuiResourceId viewId, const int16 loopNo, const 
 	}
 
 	_cursorBack.data = (byte *)realloc(_cursorBack.data, _width * _height);
+	memset(_cursorBack.data, 0, _width * _height);
 	_drawBuff1.data = (byte *)realloc(_drawBuff1.data, _width * _height);
 	_drawBuff2.data = (byte *)realloc(_drawBuff2.data, _width * _height * 4);
 	_savedVmapRegion.data = (byte *)realloc(_savedVmapRegion.data, _width * _height);
@@ -285,13 +294,13 @@ void GfxCursor32::setView(const GuiResourceId viewId, const int16 loopNo, const 
 }
 
 void GfxCursor32::readVideo(DrawRegion &target) {
-	if (g_sci->_gfxFrameout->_frameNowVisible) {
-		copy(target, _vmapRegion);
-	} else {
-		// NOTE: SSCI would read the background for the cursor directly out of
-		// video memory here, but as far as can be determined, this does not
-		// seem to actually be necessary for proper cursor rendering
-	}
+	// NOTE: In SSCI, mouse events were received via hardware interrupt, so
+	// there was a separate branch here that would read from VRAM instead of
+	// from the game's back buffer when a mouse event was received while the
+	// back buffer was being updated. In ScummVM, mouse events are polled, which
+	// means it is not possible to receive a mouse event during a back buffer
+	// update, so the code responsible for handling that is removed.
+	copy(target, _vmapRegion);
 }
 
 void GfxCursor32::copy(DrawRegion &target, const DrawRegion &source) {
@@ -329,10 +338,12 @@ void GfxCursor32::setPosition(const Common::Point &position) {
 	const int16 screenWidth = g_sci->_gfxFrameout->getCurrentBuffer().screenWidth;
 	const int16 screenHeight = g_sci->_gfxFrameout->getCurrentBuffer().screenHeight;
 
-	_position.x = (position.x * Ratio(screenWidth, scriptWidth)).toInt();
-	_position.y = (position.y * Ratio(screenHeight, scriptHeight)).toInt();
+	Common::Point newPosition;
+	newPosition.x = (position.x * Ratio(screenWidth, scriptWidth)).toInt();
+	newPosition.y = (position.y * Ratio(screenHeight, scriptHeight)).toInt();
 
-	g_system->warpMouse(_position.x, _position.y);
+	g_system->warpMouse(newPosition.x, newPosition.y);
+	deviceMoved(newPosition);
 }
 
 void GfxCursor32::gonnaPaint(Common::Rect paintRect) {
@@ -366,23 +377,33 @@ void GfxCursor32::donePainting() {
 }
 
 void GfxCursor32::deviceMoved(Common::Point &position) {
+	bool restricted = false;
+
 	if (position.x < _restrictedArea.left) {
 		position.x = _restrictedArea.left;
+		restricted = true;
 	}
 	if (position.x >= _restrictedArea.right) {
 		position.x = _restrictedArea.right - 1;
+		restricted = true;
 	}
 	if (position.y < _restrictedArea.top) {
 		position.y = _restrictedArea.top;
+		restricted = true;
 	}
 	if (position.y >= _restrictedArea.bottom) {
 		position.y = _restrictedArea.bottom - 1;
+		restricted = true;
 	}
 
-	_position = position;
+	if (restricted) {
+		g_system->warpMouse(position.x, position.y);
+	}
 
-	g_system->warpMouse(position.x, position.y);
-	move();
+	if (_position != position) {
+		_position = position;
+		move();
+	}
 }
 
 void GfxCursor32::move() {

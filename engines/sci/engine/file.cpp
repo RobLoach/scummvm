@@ -78,7 +78,7 @@ class SaveFileRewriteStream : public MemoryDynamicRWStream {
 public:
 	SaveFileRewriteStream(Common::String fileName,
 	                      Common::SeekableReadStream *inFile,
-	                      bool truncate, bool compress);
+	                      kFileOpenMode mode, bool compress);
 	virtual ~SaveFileRewriteStream();
 
 	virtual uint32 write(const void *dataPtr, uint32 dataSize) { _changed = true; return MemoryDynamicRWStream::write(dataPtr, dataSize); }
@@ -93,15 +93,21 @@ protected:
 
 SaveFileRewriteStream::SaveFileRewriteStream(Common::String fileName,
                                              Common::SeekableReadStream *inFile,
-                                             bool truncate,
+                                             kFileOpenMode mode,
                                              bool compress)
 : MemoryDynamicRWStream(DisposeAfterUse::YES),
   _fileName(fileName), _compress(compress)
 {
+	const bool truncate = mode == _K_FILE_MODE_CREATE;
+	const bool seekToEnd = mode == _K_FILE_MODE_OPEN_OR_CREATE;
+
 	if (!truncate && inFile) {
 		unsigned int s = inFile->size();
 		ensureCapacity(s);
 		inFile->read(_data, s);
+		if (seekToEnd) {
+			seek(0, SEEK_END);
+		}
 		_changed = false;
 	} else {
 		_changed = true;
@@ -162,7 +168,7 @@ uint findFreeFileHandle(EngineState *s) {
  * for reading only.
  */
 
-reg_t file_open(EngineState *s, const Common::String &filename, int mode, bool unwrapFilename) {
+reg_t file_open(EngineState *s, const Common::String &filename, kFileOpenMode mode, bool unwrapFilename) {
 	Common::String englishName = g_sci->getSciLanguageString(filename, K_LANG_ENGLISH);
 	englishName.toLowercase();
 
@@ -194,14 +200,25 @@ reg_t file_open(EngineState *s, const Common::String &filename, int mode, bool u
 		if (s->currentRoomNumber() == 52)
 			isCompressed = false;
 		break;
+#ifdef ENABLE_SCI32
+	// Hoyle5 has no save games, but creates very simple text-based game options
+	// files that do not need to be compressed
+	case GID_HOYLE5:
+	// Phantasmagoria game scripts create their own save files, so they are
+	// interoperable with the original interpreter just by renaming them as long
+	// as they are not compressed. They are also never larger than a couple
+	// hundred bytes, so compression does not do much here anyway
+	case GID_PHANTASMAGORIA:
+		isCompressed = false;
+		break;
+#endif
 	default:
 		break;
 	}
 
 #ifdef ENABLE_SCI32
-	if (mode != _K_FILE_MODE_OPEN_OR_FAIL && (
-	    (g_sci->getGameId() == GID_PHANTASMAGORIA && (filename == "phantsg.dir" || filename == "chase.dat")) ||
-	    (g_sci->getGameId() == GID_PQSWAT && filename == "swat.dat"))) {
+	if ((g_sci->getGameId() == GID_PHANTASMAGORIA && (filename == "phantsg.dir" || filename == "chase.dat" || filename == "tmp.dat")) ||
+	    (g_sci->getGameId() == GID_PQSWAT && filename == "swat.dat")) {
 		debugC(kDebugLevelFile, "  -> file_open opening %s for rewriting", wrappedName.c_str());
 
 		inFile = saveFileMan->openForLoading(wrappedName);
@@ -210,8 +227,13 @@ reg_t file_open(EngineState *s, const Common::String &filename, int mode, bool u
 		if (!inFile)
 			inFile = SearchMan.createReadStreamForMember(englishName);
 
+		if (mode == _K_FILE_MODE_OPEN_OR_FAIL && !inFile) {
+			debugC(kDebugLevelFile, "  -> file_open(_K_FILE_MODE_OPEN_OR_FAIL): failed to open file '%s'", englishName.c_str());
+			return SIGNAL_REG;
+		}
+
 		SaveFileRewriteStream *stream;
-		stream = new SaveFileRewriteStream(wrappedName, inFile, mode == _K_FILE_MODE_CREATE, isCompressed);
+		stream = new SaveFileRewriteStream(wrappedName, inFile, mode, isCompressed);
 
 		delete inFile;
 
@@ -291,7 +313,7 @@ int fgets_wrapper(EngineState *s, char *dest, int maxsize, int handle) {
 	if (maxsize > 1) {
 		memset(dest, 0, maxsize);
 		f->_in->readLine(dest, maxsize);
-		readBytes = strlen(dest); // FIXME: sierra sci returned byte count and didn't react on NUL characters
+		readBytes = Common::strnlen(dest, maxsize); // FIXME: sierra sci returned byte count and didn't react on NUL characters
 		// The returned string must not have an ending LF
 		if (readBytes > 0) {
 			if (dest[readBytes - 1] == 0x0A)
@@ -311,43 +333,67 @@ static bool _savegame_sort_byDate(const SavegameDesc &l, const SavegameDesc &r) 
 	return (l.time > r.time);
 }
 
-// Create a sorted array containing all found savedgames
+bool fillSavegameDesc(const Common::String &filename, SavegameDesc *desc) {
+	Common::SaveFileManager *saveFileMan = g_sci->getSaveFileManager();
+	Common::SeekableReadStream *in;
+	if ((in = saveFileMan->openForLoading(filename)) == nullptr) {
+		return false;
+	}
+
+	SavegameMetadata meta;
+	if (!get_savegame_metadata(in, &meta) || meta.name.empty()) {
+		// invalid
+		delete in;
+		return false;
+	}
+	delete in;
+
+	const int id = strtol(filename.end() - 3, NULL, 10);
+	desc->id = id;
+	desc->date = meta.saveDate;
+	// We need to fix date in here, because we save DDMMYYYY instead of
+	// YYYYMMDD, so sorting wouldn't work
+	desc->date = ((desc->date & 0xFFFF) << 16) | ((desc->date & 0xFF0000) >> 8) | ((desc->date & 0xFF000000) >> 24);
+	desc->time = meta.saveTime;
+	desc->version = meta.version;
+	desc->gameVersion = meta.gameVersion;
+	desc->script0Size = meta.script0Size;
+	desc->gameObjectOffset = meta.gameObjectOffset;
+#ifdef ENABLE_SCI32
+	if (g_sci->getGameId() == GID_SHIVERS) {
+		desc->lowScore = meta.lowScore;
+		desc->highScore = meta.highScore;
+	} else if (g_sci->getGameId() == GID_MOTHERGOOSEHIRES) {
+		desc->avatarId = meta.avatarId;
+	}
+#endif
+
+	if (meta.name.lastChar() == '\n')
+		meta.name.deleteLastChar();
+
+	Common::strlcpy(desc->name, meta.name.c_str(), SCI_MAX_SAVENAME_LENGTH);
+
+	return desc;
+}
+
+// Create an array containing all found savedgames, sorted by creation date
 void listSavegames(Common::Array<SavegameDesc> &saves) {
 	Common::SaveFileManager *saveFileMan = g_sci->getSaveFileManager();
-
-	// Load all saves
 	Common::StringArray saveNames = saveFileMan->listSavefiles(g_sci->getSavegamePattern());
 
 	for (Common::StringArray::const_iterator iter = saveNames.begin(); iter != saveNames.end(); ++iter) {
-		Common::String filename = *iter;
-		Common::SeekableReadStream *in;
-		if ((in = saveFileMan->openForLoading(filename))) {
-			SavegameMetadata meta;
-			if (!get_savegame_metadata(in, &meta) || meta.name.empty()) {
-				// invalid
-				delete in;
-				continue;
-			}
-			delete in;
+		const Common::String &filename = *iter;
 
-			SavegameDesc desc;
-			desc.id = strtol(filename.end() - 3, NULL, 10);
-			desc.date = meta.saveDate;
-			// We need to fix date in here, because we save DDMMYYYY instead of
-			// YYYYMMDD, so sorting wouldn't work
-			desc.date = ((desc.date & 0xFFFF) << 16) | ((desc.date & 0xFF0000) >> 8) | ((desc.date & 0xFF000000) >> 24);
-			desc.time = meta.saveTime;
-			desc.version = meta.version;
-
-			if (meta.name.lastChar() == '\n')
-				meta.name.deleteLastChar();
-
-			Common::strlcpy(desc.name, meta.name.c_str(), SCI_MAX_SAVENAME_LENGTH);
-
-			debug(3, "Savegame in file %s ok, id %d", filename.c_str(), desc.id);
-
-			saves.push_back(desc);
+#ifdef ENABLE_SCI32
+		const int id = strtol(filename.end() - 3, NULL, 10);
+		if (id == kNewGameId || id == kAutoSaveId) {
+			continue;
 		}
+#endif
+
+		SavegameDesc desc;
+		fillSavegameDesc(filename, &desc);
+		saves.push_back(desc);
 	}
 
 	// Sort the list by creation date of the saves

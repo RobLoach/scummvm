@@ -55,7 +55,7 @@
  */
 
 #define VERSION_NUMBER 1
-#define HEADER_SIZE 0xF00
+#define HEADER_SIZE 0x1200
 
 Common::File inputFile, outputFile;
 Common::PEResources resEng, resGer;
@@ -70,17 +70,20 @@ uint dataOffset = HEADER_SIZE;
 enum {
 	ENGLISH_10042C_DIFF = 0x401C00,
 	ENGLISH_10042B_DIFF = 0x401400,
-	ENGLISH_10042_DIFF = 0x402000
+	ENGLISH_10042_DIFF = 0x402000,
+	GERMAN_DIFF = 0x401200
 };
 enum Version {
 	ENGLISH_10042C = 0,
 	ENGLISH_10042B = 1,
-	ENGLISH_10042 = 2
+	ENGLISH_10042 = 2,
+	GERMAN = 3
 };
 Version _version;
 
-const int FILE_DIFF[3] = {
-	ENGLISH_10042C_DIFF, ENGLISH_10042B_DIFF, ENGLISH_10042_DIFF
+const int FILE_DIFF[4] = {
+	ENGLISH_10042C_DIFF, ENGLISH_10042B_DIFF, ENGLISH_10042_DIFF,
+	GERMAN_DIFF
 };
 
 static const char *const ITEM_NAMES[46] = {
@@ -112,6 +115,54 @@ static const char *const ITEM_DESCRIPTIONS[46] = {
 	"A super-absorbent napkin", "Titania's nose", "A perch", "A phonograph cylinder",
 	"A phonograph cylinder", "A phonograph cylinder", "A phonograph cylinder",
 	"A photograph"
+};
+static const char *const ITEM_DESCRIPTIONS_DE[46] = {
+	"Der linke Arm des OberkellnerBots, im Besitz eines Schl\xFC""ssels ",
+	"Der linke Arm des OberkellnerBots",
+	"Der rechte Arm des OberkellnerBots, im Besitz von Titanias Geh\xF6""rmodul",
+	"Der rechte Arm des OberkellnerBots",
+	"Rote Sicherung",
+	"Gelbe Sicherung",
+	"Blaue Sicherung",
+	"Gr\xFC""ne Sicherung",
+	"Der Papagei",
+	"Titanias Gro\xDF""hirn",
+	"Titanias Geh\xF6""rmodul",
+	"Titanias Geruchsmodul",
+	"Titanias Sprachmodul",
+	"Titanias Gesichtsmodul",
+	"ziemlich fettiges H\xFC""hnchen",
+	"H\xFC""hnchen ohne alles",
+	"mit Starenp\xFC""ree beschmiertes H\xFC""hnchen",
+	"mit Tomatensauce garniertes H\xFC""hnchen",
+	"mit Senfso\xDF""e \xFC""berzogenes H\xFC""hnchen",
+	"Ein zerschmetterter Fernsehapparat",
+	"Titanias Ohr",
+	"Titanias Ohr",
+	"Titanias Auge",
+	"Titanias Auge",
+	"Eine Papageienfeder",
+	"Eine sch\xF6""ne fette saftige Zitrone",
+	"Ein leeres Bierglas",
+	"Ein Starenp\xFC""ree enthaltendes Bierglas",
+	"Ein Tomatenso\xDF""e enthaltendes Bierglas",
+	"Ein Senfso\xDF""e enthaltendes Bierglas",
+	"Ein Hammer",
+	"Ein Schlauch",
+	"Das andere Ende eines Schlauchs",
+	"Der Kopf eines LiftBots",
+	"Ein ziemlich langer Stab",
+	"Ein Magazin",
+	"Titanias Mund",
+	"Ein Schl\xFC""ssel",
+	"Eine supersaugf\xE4""hige Serviette",
+	"Titanias Nase",
+	"Eine Vogelstange",
+	"Ein Grammophonzylinder",
+	"Ein Grammophonzylinder",
+	"Ein Grammophonzylinder",
+	"Ein Grammophonzylinder",
+	"Ein Foto"
 };
 
 static const char *const ITEM_IDS[40] = {
@@ -147,7 +198,7 @@ const NumberEntry NUMBERS[76] = {
 	{ "and", 0, 1 },
 	{ "negative", 0, 10 },
 	{ "minus", 0, 10 },
-	{ "below zeor", 0, 8 },
+	{ "below zero", 0, 8 },
 	{ "degrees below zero", 0, 8 },
 	{ "nil", 0, 2 },
 	{ "zero", 0, 2 },
@@ -266,6 +317,68 @@ static const CommonPhrase BELLBOT_COMMON_PHRASES[] = {
 	{ "sauce gets stuck to the chicken", 0x3156B, 0x00, 0 },
 	{ nullptr, 0, 0, 0 }
 };
+static const CommonPhrase BELLBOT_COMMON_PHRASES_DE[] = {
+	{ "was ist mit ihr los", 0x30ff9, 0x7b, 0 },
+	{ "was fehlt ihr", 0x30ff9, 0x7b, 0 },
+	{ "was hat sie denn", 0x30ff9, 0x7b, 0 },
+	{ "was ist denn mit ihr", 0x30ff9, 0x7b, 0 },
+	{ "was stimmt denn nicht mit ihr", 0x30ff9, 0x7b, 0 },
+	{ "was ist mit titania los", 0x30ff9, 0x7b, 0 },
+	{ "was fehlt titania", 0x30ff9, 0x7b, 0 },
+	{ " was ist denn mit titania", 0x30ff9, 0x7b, 0 },
+	{ "was ist denn mit titania los", 0x30ff9, 0x7b, 0 },
+	{ "etwas anderes zu essen", 0x30e1d, 0, 3 },
+	{ "noch zu essen", 0x30e1d, 0, 3 },
+	{ "noch essen", 0x30e1d, 0, 3 },
+	{ "anderes essen", 0x30e1d, 0, 3 },
+	{ "etwas gutes zu essen", 0x30e1d, 0, 3 },
+	{ "vernuenftiges essen", 0x30e1d, 0, 3 },
+	{ "leckeres essen", 0x30e1d, 0, 3 },
+	{ "lecker essen", 0x30e1d, 0, 3 },
+	{ "besseres essen", 0x30e1d, 0, 3 },
+	{ "gutes zu essen", 0x30e1d, 0, 3 },
+	{ "aufheitern", 0x31011, 0, 0 },
+	{ "heiter mich mal auf", 0x31011, 0, 0 },
+	{ "kriege ich ein besseres zimmer", 0x30e8a, 0, 3 },
+	{ "kriege ich ein besseres zimmer", 0x30e8a, 0, 2 },
+	{ "kriege ich eine bessere kabine", 0x30e8a, 0, 3 },
+	{ "kriege ich eine bessere kabine", 0x30e8a, 0, 2 },
+	{ "komme ich an eine schoenere kabine", 0x30e8a, 0, 3 },
+	{ "komme ich an eine schoenere kabine", 0x30e8a, 0, 2 },
+	{ "kriege ich eine schoenere kabine", 0x30e8a, 0, 3 },
+	{ "kriege ich eine schoenere kabine", 0x30e8a, 0, 2 },
+	{ "bekomme ich eine schoenere kabine", 0x30e8a, 0, 3 },
+	{ "bekomme ich eine schoenere kabine", 0x30e8a, 0, 2 },
+	{ "komme ich an eine bessere kabine", 0x30e8a, 0, 3 },
+	{ "komme ich an eine bessere kabine", 0x30e8a, 0, 2 },
+	{ "ich verstehe", 0x30d75, 0x6d, 0 },
+	{ "das wusste ich", 0x30d75, 0x6d, 0 },
+	{ "wusste ich es doch", 0x30d75, 0x6d, 0 },
+	{ "ich weiss", 0x30d75, 0x6d, 0 },
+	{ "ich kenne", 0x30d75, 0x6d, 0 },
+	{ "hilfst du nicht", 0x30d6f, 0x6d, 0 },
+	{ "du hilfst nicht", 0x30d6f, 0x6d, 0 },
+	{ "nicht hilfsbereit", 0x30d6f, 0x6d, 0 },
+	{ "nicht freundlich", 0x30d6f, 0x6d, 0 },
+	{ "nicht zuvorkommend", 0x30d6f, 0x6d, 0 },
+	{ "hilfst nicht", 0x30d6f, 0x6d, 0 },
+	{ "keine hilfe", 0x30d6f, 0x6d, 0 },
+	{ "hilfst du mir nicht", 0x30d6f, 0x6d, 0 },
+	{ "entschuldig", 0x30d76, 0x6d, 0 },
+	{ "verzeihung", 0x30d76, 0x6d, 0 },
+	{ "tut mir leid", 0x30d76, 0x6d, 0 },
+	{ "tut mir aber leid", 0x30d76, 0x6d, 0 },
+	{ "ich meinte es nicht so", 0x30d76, 0x6d, 0 },
+	{ "wollte ich nicht sagen", 0x30d76, 0x6d, 0 },
+	{ "nicht so gemeint", 0x30d76, 0x6d, 0 },
+	{ "nichts fuer ungut", 0x30d76, 0x6d, 0 },
+	{ "spielst du golf", 0x313b6, 0, 0 },
+	{ "golf spielen", 0x313b6, 0, 0 },
+	{ "spiele golf", 0x313b6, 0, 0 },
+	{ "sosse klebt am huhn fest", 0x3156b, 0, 0 },
+	{ "die sosse nicht von dem huehnchen los", 0x3156b, 0, 0 },
+	{ nullptr, 0, 0, 0 }
+};
 
 struct FrameRange {
 	int _startFrame;
@@ -365,6 +478,90 @@ static const char *const MISSIVEOMAT_MESSAGES[3] = {
 	"His Loftiness Leovinus are here."
 };
 
+static const char *const MISSIVEOMAT_MESSAGES_DE[3] = {
+	"Willkommen, Leovinus.\n"
+	"\n"
+	"Dies ist Ihr Depesch-O-Mat.\n"
+	"\n"
+	"Sie haben 1827 Elektrische Depeschen erhalten.\n"
+	"\n"
+	"Aus praktischen Gr\xFC""nden habe ich 453 Nachrichten von Leuten, "
+	"die Sie nicht kennen und die dachten, es w\xE4""re unheimlich geistreich, "
+	"sie an Sie weiterzusenden, gel\xF6""scht, darunter 63 Depeschen mit "
+	"doppelten oder dreifachen Ausrufezeichen,\n"
+	"846 Depeschen von Mailing-Listen, die Sie einmal f\xFC"
+	"r sehr interessant hielten, und von denen Sie jetzt keine Ahnung haben, "
+	"wie man sie l\xF6""schen kann, \n"
+	"962 Kettendepeschen,\n"
+	"1034 Anweisungen, wie man durch den Einsatz von Butter zum Million\xE4""r wird,\n"
+	"3 Yassakkanische Morddrohungen (diese Zahl ist im Vergleich zur Vorwoche leicht "
+	"gesunken, was durchaus erfreulich ist), \n"
+	"und eine Depesche von Ihrer Mutter, die ich mit beruhigenden Worten beantwortet habe.\n"
+	"\n"
+	"Auf folgende Depeschen m\xF6""chte ich Ihre besondere Aufmerksamkeit lenken. "
+	"Sie brauchen den Flunker-Finder nicht zu aktivieren um zu sehen, warum. "
+	"Irgend etwas ist faul, und ich habe den Verdacht, da\xDF"" die beiden schleimigen "
+	"Quallen Brobostigon und Scraliontis wieder dahinter stecken.",
+
+	"Hallo Droot.  Ich habe Ihre letzten Depeschen ausgewertet.\n"
+	"Der Inhalt gliedert sich wie folgt:\n"
+	"\n"
+	"Gute Nachrichten 49%\n"
+	"Schlechte Nachrichten 48%\n"
+	"Mittelm\xE4\xDF""ige Nachrichten 4%\n"
+	"Belanglose Mailings und Familiendepeschen 5%\n"
+	"Sonderangebote der Blerontinischen Sand Gesellschaft 1% "
+	"(beachtenswert: die ziemlich h\xFC""bsche Miet-D\xFC""ne auf Seite 4)\n"
+	"\n"
+	"Insgesamt gesehen sind Sie \xE4""u\xDF""erst Erfolgreich.  Die Gesch\xE4""fte "
+	"Florieren weiterhin.  Ihre Aktien sind in Sicherheit. Ihr Haar "
+	"sieht wie immer Toll aus. Teppich 14 mu\xDF"" gereinigt werden.\n"
+	"\n"
+	"Es freut mich, berichten zu d\xFC""rfen, da\xDF"" keine weiteren "
+	"Kommentare zu Schwei\xDF""f\xFC\xDF""en gemeldet wurden.\n"
+	"\n"
+	"Empfehle dringend, alle Fischpaste-Aktien zu verkaufen, da Marktschwankungen.\n"
+	"\n"
+	"Da Ihr Gro\xDF""er Plan beinahe vollendet ist, war ich so frei, alle "
+	"nicht dringenden Depeschen zu beantworten und f\xFC""hre hierauffolgend nur "
+	"die Korrespondenz mit Manager Brobostigon und Ihrer Durchlauchtigsten Gro\xDF""kotz "
+	"Nervens\xE4""ge Leovinus auf.\n"
+	"\n"
+	"Achtung: Leovinus sch\xF6""pft langsam Verdacht.  Lassen Sie auch Brobostigon "
+	"nicht aus den Augen.\n"
+	"\n"
+	"F\xFC""r den morgigen Stapellauf ist das Wetter heiter und sonnig.  "
+	"Um elf Uhr wird leichte Bew\xF6""lkung eingeschaltet. Ich schlage "
+	"den roten Anzug mit der Sch\xE4""rpe vor.\n"
+	"\n"
+	"Alle Geld\xFC""berweisungen werden \xFC""ber Decknamenkonten vor Mondaufgang get\xE4""tigt.\n"
+	"\n"
+	"Achten Sie auf eine ausgewogene Ern\xE4""hrung.  Ihr Fischstand ist niedrig und Sie k\xF6"
+	"nnten am sp\xE4""ten Vormittag unter Entscheidungsschwankungen leiden.\n"
+	"\n"
+	"Hier sind Ihre Depeschen...",
+
+	"Hallo Antar, dies ist Ihr Depesch-O-Mat.\n"
+	"\n"
+	"Nicht, da\xDF"" Sie daran noch erinnert werden m\xFC"
+	"ssen, aber heute ist die Glorreiche D\xE4""mmerung eines Neuen Zeitalters "
+	"in der Luxusraumfahrt. \n"
+	"\n"
+	"Im Allgemeinen zeigt meine Bewertung Ihrer Verfassung an diesem Morgen, "
+	"da\xDF"" Sie wohlauf sind, wenn auch nicht so reich, wie Sie es gerne w\xE4""ren.  "
+	"Ich hoffe, die interessante Zusammenarbeit mit Herrn Scraliontis wird bald "
+	"Fr\xFC""chte tragen. \n"
+	"\n"
+	"Ich hoffe, Ihre Bl\xE4""hungen haben in der Nacht etwas nachgelassen.  "
+	"Was f\xFC""r ein betr\xFC""bliches Leiden f\xFC""r  "
+	"einen Mann in Ihrer Position.\n"
+	"\n"
+	"Bei den meisten eingegangenen Depeschen handelt es sich um routinem\xE4\xDF"
+	"ige Bauangelegenheiten, die ich bearbeitet und dann gel\xF6""scht "
+	"habe.  Alle Depeschen von Herrn Scraliontis und Ihrer Durchlauchtigen "
+	"Aufgeblasenheit Leovinus folgen."
+};
+
 struct BedheadEntry {
 	const char *_name1;
 	const char *_name2;
@@ -416,10 +613,11 @@ static const BedheadEntry OFF_RESTING_D_WRONG[1] = {
 	{ "Any", "Any", "Any", "ClosedWrong", 59, 70 }
 };
 
-static const char *const STRINGS_EN[] = {
+static const char *const STRINGS_EN[141] = {
 	"",
 	"You are standing outside the Pellerator.",
 	"I'm sorry, you cannot enter this pellerator at present as a bot is in the way.",
+	"I'm sorry, you cannot enter this pellerator at present as it's frozen shut",
 	"The Succ-U-Bus is in Standby, or \"Off\" mode at present.",
 	"There is currently nothing to deliver.",
 	"There is currently nothing in the tray to send.",
@@ -478,13 +676,97 @@ static const char *const STRINGS_EN[] = {
 	"Go where?",
 	"It would be nice if you could take that but you can't.",
 	"A bowl of pistachio nuts.",
-	"Not a bowl of pistachio nuts."
+	"Not a bowl of pistachio nuts.",
+
+	"Sadly, it is not possible to summon the DoorBot from this location.",
+	"Sadly, it is not possible to summon the BellBot from this location.",
+	"There is no one here to talk to",
+	"Talking to ",
+	"the DoorBot",
+	"the DeskBot",
+	"a LiftBot",
+	"the Parrot",
+	"the BarBot",
+	"a ChatterBot",
+	"the BellBot",
+	"the Maitre d'Bot",
+	"a Succ-U-Bus",
+	"Unknown",
+	"The arm is already holding something.",
+	"You can't get this.",
+	"That doesn't seem to do anything.",
+	"It doesn't seem to want this.",
+	"This does not reach.",
+	"The chicken is already clean.",
+	"Succ-U-Bus auxiliary hose attachment incompatible with sliding glass cover.",
+	"This item is incorrectly calibrated.",
+	"Only First Class passengers are allowed to use the Gondoliers.",
+	"There is currently nothing available for your viewing pleasure on this channel.",
+	"Television control",
+	"Operate visual entertainment device",
+	"Operate the lights",
+	"Deploy floral enhancement",
+	"Deploy fully recumbent relaxation device",
+	"Deploy comfort workstation",
+	"Deploy minor horizontally mobile storage compartment",
+	"Deploy major semi-recumbent relaxation device",
+	"Inflate fully recumbent relaxation device",
+	"Deploy personal maintenance hub",
+	"Deploy executive horizontal worksurface",
+	"Deploy minor semi-recumbent relaxation device",
+	"Deploy aqueous cleansing receptacle",
+	"Deploy major horizontally mobile storage compartment",
+	"Succ-U-Bus delivery system control",
+	"Navigation controller",
+	"Let Titania figure out where Earth is (skip puzzle)",
+	"Summon Elevator",
+	"Summon Pellerator",
+	"Go to the Bottom of the Well",
+	"Go to the Top of the Well",
+	"Go to your stateroom",
+	"Go to the Bar",
+	"Go to the Promenade Deck",
+	"Go to the Arboretum",
+	"Go to the Music Room",
+	"Go to the First Class Restaurant",
+	"The Parrot Lobby",
+	"The Creators' Chamber",
+	"The Bridge",
+	"The Bilge Room",
+	"The Sculpture Chamber",
+	"The Arboretum",
+	"The Bottom of the Well",
+	"The Promenade Deck",
+	"The 1st class restaurant",
+	"Titania's Room",
+	"The Bar",
+	"The Embarkation Lobby",
+	"The Music Room",
+	"Unknown Room",
+	"The Service Elevator",
+	"The Super Galactic Leisure Lounge",
+	"The Elevator",
+	"The Dome",
+	"The Pellerator",
+	"The Top of the Well",
+	"Nowhere you're likely to want to go.",
+	"1st class",
+	"2nd class",
+	"SGT class",
+	"no class",
+	"Your assigned room: ",
+	"A previously assigned room: ",
+	"Saved Chevron: ",
+	"Current location: ",
+	"A hot",
+	"A cold"
 };
 
-static const char *const STRINGS_DE[] = {
-	// TODO: Translate these to their German versions
+static const char *const STRINGS_DE[186] = {
 	"",
 	"Sie befinden sich vor dem Pellerator.",
+	"Wir bedauern, da ein Bot den Weg versperrt, ist Ihnen der "
+		"Zutritt zum Pellerator Ihnen gegenwSrtig verwehrt.",
 	"Wir bedauern, Zutritt zu diesem Pellerator ist nicht m\0xF6"
 		"glich, da die T\0xFC" "r zugefroren ist.",
 	"Der Sukk-U-Bus befindet sich gegenwSrtig im Standby-oder \"AUS\"-Betrieb.",
@@ -540,7 +822,7 @@ static const char *const STRINGS_DE[] = {
 	"Melden Sie sich bitte an der Rezeption an.",
 	"Dieses Nahrungsmittel ist bereits ausreichend garniert.",
 	"Leider ist dieser Automat gegenwSrtig leer.",
-	"Bei So¯enbedarf positionieren Sie bitte die Nahrungsquelle direkt "
+	"Bei So\xAF" "enbedarf positionieren Sie bitte die Nahrungsquelle direkt "
 		"unter den Automaten.",
 	"Der Jahreszeitenschalter befindet sich zur Zeit au\xDF" "er Betrieb.",
 	"Dies ist Ihre Kabine. Sie dient zum Schlafen. Wenn Sie Unterhaltung "
@@ -553,13 +835,97 @@ static const char *const STRINGS_DE[] = {
 		"Aufenthalt bitte nicht.",
 	"Leider ist dies f\xFCr Sie au\xDF" "er Reichweite.",
 	"Der Sukk-U-Bus ist ein Einzel-St\xFC" "ck-Lieferger\xE4t.",
-	"Leider ist das Gro¯e-Kanal-Bef\xF6rderungssystem im Winter geschlossen.",
+	"Leider ist das Gro\xAF" "e-Kanal-Bef\xF6rderungssystem im Winter geschlossen.",
 	"Passagieren ist der Zutritt zu diesem Bereich nicht gestattet.",
 	"Wohin m\xF6" "chten Sie gehen?",
 	"Es wSre zwar ganz nett, wenn Sie das mitnehmen k\xF6nnten, "
 		"aber das k\xF6nnen Sie eben nicht.",
 	"Eine Schale Pistazien.",
 	"Keine Schale Pistazien.",
+
+	"Leider ist es nicht m\xF6""glich den T\xFC""r-Bot von diesem Ort aus herbeizurufen.",
+	"Leider ist es nicht m\xF6""glich den Klingel-Bot von diesem Ort aus herbeizurufen.",
+	"Es ist niemand hier mit dem du sprechen k\xF6""nntest",
+	"Spricht mit ",
+	"Im Gespr\xE4""ch mit ",
+	"der T\xFC""r-Bot",
+	"der Empfangs-Bot",
+	"der Aufzugs-Bot",
+	"der Papagei",
+	"der Bar-Bot",
+	"ein Quassel-Bot",
+	"der Klingel-Bot",
+	"der Chef-Bot",
+	"ein Sukk-U-Bus",
+	"Unbekannt",
+	"Der Arm h\xE4""lt bereits etwas.",
+	"Das kannst du nicht bekommen.",
+	"Das scheint nichts zu tun.",
+	"Es scheint das nicht zu wollen.",
+	"Das erreicht es nicht.",
+	"Das H\xFC""hnchen ist bereits sauber.",
+	"Sukk-U-Bus Hilfsschlauch-Aufsatz nicht kompatibel mit gl\xE4""serner Schiebeabdeckung.",
+	"Der Gegenstand ist falsch kalibriert.",
+	"Nur Passagiere erster Klasse ist es erlaubt den Gondoliere zu benutzen.",
+	"Zurzeit kommt auf diesem Kanal nichts sehenswertes.",
+	"Fernbedienung",
+	"Bediene visuelles Unterhaltungssystem",
+	"Bediene die Lichter",
+	"Setze florale Verbesserung ein",
+	"Stelle vollkommend-liegendes Entspannungsger\xE4""t bereit",
+	"Stelle Wohlf\xFC""hl-Arbeitsplatz bereit",
+	"Stelle kleineres horizontal bewegliches Abstellfach bereit"
+	"Stelle gr\xF6""\xDF""eres halbliegendes Entspannungsger\xE4""t bereit",
+	"Pumpe vollkommend-liegendes Entspannungsger\xE4""t auf",
+	"Stelle pers\xF6""nliche Instandsetzungsstation bereit",
+	"Stelle horizontale F\xFC""hrungskrafts-Arbeitsfl\xE4""che bereit",
+	"Stelle kleineres halbliegendes Entspannungsger\xE4""t bereit",
+	"Stelle mit Wasser reinigendes Beh\xE4""ltnis bereit",
+	"Stelle gr\xF6""\xDF""eres horizontal tragbares Abstellfach bereit",
+	"Sukk-U-Bus Zustell-Kontrollsystem",
+	"Navigations-Kontroller",
+	"Lass Titania herausbekommen wo die Erde ist (\xFC""berspringe Puzzle)",
+	"Rufe Aufzug",
+	"Rufe Pellerator",
+	"Gehe zum Grund des Brunnens",
+	"Gehe zur Oberfl\xE4""che des Brunnens",
+	"Gehe zu deiner Kabine"
+	"Gehe zur Bar",
+	"Gehe zum Promenadendeck",
+	"Gehe zum Baumgarten",
+	"Gehe zum Musikzimmer",
+	"Gehe zum First-Class-Restaurant",
+	"Die Papagei-Lobby",
+	"Das Zimmer des Erschaffers",
+	"Die Br\xFC""cke",
+	"Der Kielraum"
+	"Das Skulpturenzimmer",
+	"Der Baumgarten",
+	"Der Grund des Brunnens",
+	"Das Promenadendeck"
+	"Das First-Class-Restaurant",
+	"Titanias Zimmer",
+	"Die Bar",
+	"Die Empfangshalle",
+	"Das Musikzimmer",
+	"Unbekanntes Zimmer",
+	"Der G\xFC""teraufzug",
+	"Die Supergalaktische-Freizeitlounge",
+	"Der Aufzug",
+	"Die Kuppel",
+	"Der Pellerator",
+	"Die Oberfl\xE4""che des Brunnens",
+	"Nirgends, wo du hingehen m\xF6""chtest.",
+	"Erste Klasse",
+	"Zweite Klasse",
+	"SGT Klasse",
+	"keine Klasse",
+	"Dein zugewiesenes Zimmer: ",
+	"Dein zuvor zugewiesenes Zimmer: ",
+	"Gespeichertes Abzeichen: ",
+	"Derzeitige Position: ",
+	"Eine hei\xDF""e",
+	"Eine kalte",
 
 	"Sommer",
 	"Herbst",
@@ -619,6 +985,36 @@ static const char *const STRINGS_DE[] = {
 	"Und sagen Sie hinterher blo\0xFC nicht, niemand hStte Sie gewarnt.",
 	"Pin\0xAA" "z-pin\0xAA" "z stot \0xAF" "r\0xB0 jibbli",
 	"Dr\0xFC" "cken Sie den Knopf um die Bombe zu entschSrfen."
+};
+
+static const char *const MUSIC_DATA[4] = {
+	"64,^|^|^|^|^|^|^|^|^|^|^|^|^|^|^|^|8,^^^^ 5:A///|64,/|/|/|/|/|/|/"
+	"|/|/|/|/|/|/|/|/|/|^|^|^|^|^|^|^|^|^|16, ^B//|64,/|/|/|/|^|16,^C/"
+	"/|64,/|/|/|/|",
+	"2:8,^^^^B//a|//g//B//|g///B//a|//g//A//|B//^C//b|//a//a//|BCb/b//"
+	"a|//g//A//|g/+f/D//c|//b//gA/|g/^^C//C|//C//a//|BCb////a|//g//g//"
+	"|g/g//B/a|/g//////|//^^B//a|//g//B//|g///B//a|//g//B//|g//^C//b|/"
+	"/a//a//|BCb/b//a|//g//B//|g/+f/D//c|//b//gA/|g/^^C//C|//C//a//|BC"
+	"b////a|//g//g//|g/g//B/a|/g//////|3:^^B//a//|g//A//g/|/^B//a//|g/"
+	"/A//B/|b^ 3:C//b//|a//g//+f/|+fG/G/GA/|B/a/g///|B///+f//G|G/G/+f/"
+	"G/|^^e//d//|c//b//gA|g/B//a//|g//g//g/|g//B/a/g|//////^^|^^Ga///G"
+	"|////////|////////|////////|",
+	"2:8,^^^^^^D/|/E//E//E|/d//^^d/|/E//E//E|/E//^^G/|/d//d//d|/^^^^^d"
+	"/|/E//E//E|/d/^^^E/|/E//d/+F/|bD^^^^G/|/e//e//e|^^^^^^d/|/E//E//E"
+	"|//d///d/|//b/////|^^^^^^D/|/E//E//E|/d//^^d/|/E//E//E|/E//^^G/|/"
+	"d//d//d|/^^^^^d/|/E//E//E|/d/^^^E/|/E//d/d/|d/^^^^G/|/e//e//e|^^^"
+	"^^^d/|/E//E//E|//d///d/|//b/////|3:D///c//b|//b//b//|D///c//b|//b"
+	"//g//|E///d//c|//b//a//|aB/B/BC/|D/c/b///|^^^D//DE|/E/E/d/d|//E/g"
+	"//g|//g//d//|^^^^g//E|//E//E//|d///d///|b///////|// 3:Db///C|///b"
+	"/// 5:A|64,/|/|/|/|/|/|/|/|",
+	"2:8,^^G//+f//|e//e//e/|//G//+f//|e//e//+F/|G/a//g//|+f//+f//+f/|/"
+	"/G//+F//|e//e//e/|//B//a//|g//e///d|//c//b//|a//a//a/|+f/G// 2:+F"
+	"//|e//e//C/|//b/g/+f/|//G/////|^^G//+f//|e//e//e/|//G//+f//|e//e/"
+	"/e/|//a//g//|+f//+f//+f/|//G//+F//|e//e//e/|//B//a//|g//e///d|/  "
+	"2:dC//b//|a//a//a/|+f/G//+F//|e//e//C/|//b/g/+f/|//G/////|d//d//d"
+	"/|/E//E//d|d//d//E/|/+F//G//b|a//a//a/|/D//D// 3:D|//g/g//D|/d/G/"
+	"///|^^b//b//|b//ba/B/|c//B//a/|/g//+f//+f|G//+F//e/|/c//C///|b/g/"
+	"+f///|G///////|G///////|C///////|////////|////////|"
 };
 
 void NORETURN_PRE error(const char *s, ...) {
@@ -701,25 +1097,34 @@ void writeResource(const char *name, Common::File *file) {
 	delete file;
 }
 
-void writeResource(const char *sectionStr, uint32 resId, bool isEnglish = true) {
-	char nameBuffer[256];
-	sprintf(nameBuffer, "%s/%u", sectionStr, resId);
-
+void writeResource(const char *resName, const char *sectionStr, uint32 resId, bool isEnglish = true) {
 	Common::PEResources &res = isEnglish ? resEng : resGer;
 	Common::File *file = res.getResource(getResId(sectionStr), resId);
 	assert(file);
-	writeResource(nameBuffer, file);
+	writeResource(resName, file);
+}
+
+void writeResource(const char *sectionStr, uint32 resId, bool isEnglish = true) {
+	char nameBuffer[256];
+	sprintf(nameBuffer, "%s/%u", sectionStr, resId);
+	writeResource(nameBuffer, sectionStr, resId, isEnglish);
+}
+
+void writeResource(const char *resName, const char *sectionStr, const char *resId, bool isEnglish = true) {
+	Common::PEResources &res = isEnglish ? resEng : resGer;
+	Common::File *file = res.getResource(getResId(sectionStr),
+		Common::WinResourceID(resId));
+	assert(file);
+	writeResource(resName, file);
 }
 
 void writeResource(const char *sectionStr, const char *resId, bool isEnglish = true) {
 	char nameBuffer[256];
 	sprintf(nameBuffer, "%s/%s", sectionStr, resId);
+	if (!isEnglish)
+		strcat(nameBuffer, "/DE");
 
-	Common::PEResources &res = isEnglish ? resEng : resGer;
-	Common::File *file = res.getResource(getResId(sectionStr),
-		Common::WinResourceID(resId));
-	assert(file);
-	writeResource(nameBuffer, file);
+	writeResource(nameBuffer, sectionStr, resId, isEnglish);
 }
 
 void writeBitmap(const char *name, Common::File *file) {
@@ -779,12 +1184,16 @@ void writeNumbers() {
 }
 
 void writeString(uint offset) {
-	inputFile.seek(offset - FILE_DIFF[_version]);
-	char c;
-	do {
-		c = inputFile.readByte();
-		outputFile.writeByte(c);
-	} while (c);
+	if (offset == 0) {
+		outputFile.writeByte(0);
+	} else {
+		inputFile.seek(offset - FILE_DIFF[_version]);
+		char c;
+		do {
+			c = inputFile.readByte();
+			outputFile.writeByte(c);
+		} while (c);
+	}
 }
 
 void writeResponseTree() {
@@ -818,7 +1227,7 @@ void writeResponseTree() {
 void writeSentenceEntries(const char *name, uint tableOffset) {
 	outputFile.seek(dataOffset);
 
-	uint v1, v2, v9, v11, v12, v13;
+	uint v1, category, v4, v9, v11, v12, v13;
 	uint offset3, offset5, offset6, offset7, offset8, offset10;
 
 	for (uint idx = 0; ; ++idx) {
@@ -829,9 +1238,9 @@ void writeSentenceEntries(const char *name, uint tableOffset) {
 			break;
 
 		// Read data fields
-		v2 = inputFile.readLong();
+		category = inputFile.readLong();
 		offset3 = inputFile.readLong();
-		/* v4 = */inputFile.readLong();
+		v4 = inputFile.readLong();
 		offset5 = inputFile.readLong();
 		offset6 = inputFile.readLong();
 		offset7 = inputFile.readLong();
@@ -843,9 +1252,9 @@ void writeSentenceEntries(const char *name, uint tableOffset) {
 		v13 = inputFile.readLong();
 
 		outputFile.writeLong(v1);
-		outputFile.writeLong(v2);
+		outputFile.writeLong(category);
 		writeString(offset3);
-		outputFile.writeLong(v1);
+		outputFile.writeLong(v4);
 		writeString(offset5);
 		writeString(offset6);
 		writeString(offset7);
@@ -935,8 +1344,9 @@ void writeStarfieldPoints2() {
 }
 
 void writePhrases(const char *name, const CommonPhrase *phrases) {
+	outputFile.seek(dataOffset);
+
 	for (uint idx = 0; phrases->_str; ++idx, ++phrases) {
-		outputFile.seek(dataOffset + idx * 4);
 		outputFile.writeString(phrases->_str);
 		outputFile.writeLong(phrases->_dialogueId);
 		outputFile.writeLong(phrases->_roomNum);
@@ -977,6 +1387,21 @@ void writeMissiveOMatMessages() {
 	writeStringArray("TEXT/MISSIVEOMAT/FROM", FROM[_version], 58);
 	static const int TO[3] = { 0x5A62D8, 0x5A5AC0, 0x5A4B00 };
 	writeStringArray("TEXT/MISSIVEOMAT/TO", TO[_version], 58);
+}
+
+void writeMissiveOMatMessagesDE() {
+	outputFile.seek(dataOffset);
+
+	for (int idx = 0; idx < 3; ++idx)
+		outputFile.writeString(MISSIVEOMAT_MESSAGES_DE[idx]);
+
+	uint size = outputFile.size() - dataOffset;
+	writeEntryHeader("TEXT/MISSIVEOMAT/WELCOME/DE", dataOffset, size);
+	dataOffset += size;
+
+	writeStringArray("TEXT/MISSIVEOMAT/MESSAGES/DE", 0x5A9988, 58);
+	writeStringArray("TEXT/MISSIVEOMAT/FROM/DE", 0x5A97B8, 58);
+	writeStringArray("TEXT/MISSIVEOMAT/TO/DE", 0x5A98A0, 58);
 }
 
 void writeBedheadGroup(const BedheadEntry *data, int count) {
@@ -1073,20 +1498,26 @@ void writeData() {
 	writeResource("STFONT", 152);
 	writeResource("STFONT", 153);
 
+	writeResource("TEXT/STVOCAB", "TEXT", "STVOCAB.TXT");
+	writeResource("TEXT/JRQUOTES", "TEXT", "JRQUOTES.TXT");
+	writeResource("TEXT", 155);
+	if (!resGer.empty()) {
+		writeResource("TEXT/STVOCAB/DE", "TEXT", "STVOCABDE.TXT", false);
+		writeResource("TEXT/JRQUOTES/DE", "TEXT", "JRQUOTESDE.TXT", false);
+		writeResource("TEXT/155/DE", "TEXT", 155, false);
+	}
+
 	writeResource("STARFIELD", 132);
 	writeStarfieldPoints();
 	writeStarfieldPoints2();
 
-	writeResource("TEXT", "STVOCAB.TXT");
-	writeResource("TEXT", "JRQUOTES.TXT");
-	writeResource("TEXT", 155);
-
 	writeStringArray("TEXT/ITEM_DESCRIPTIONS", ITEM_DESCRIPTIONS, 46);
+	writeStringArray("TEXT/ITEM_DESCRIPTIONS/DE", ITEM_DESCRIPTIONS_DE, 46);
 	writeStringArray("TEXT/ITEM_NAMES", ITEM_NAMES, 46);
 	writeStringArray("TEXT/ITEM_IDS", ITEM_IDS, 40);
 	writeStringArray("TEXT/ROOM_NAMES", ROOM_NAMES, 34);
-	writeStringArray("TEXT/STRINGS", STRINGS_EN, 58);
-	writeStringArray("TEXT/STRINGS/DE", STRINGS_DE, 104);
+	writeStringArray("TEXT/STRINGS", STRINGS_EN, 141);
+	writeStringArray("TEXT/STRINGS/DE", STRINGS_DE, 186);
 	const int TEXT_PHRASES[3] = { 0x61D3C8, 0x618340, 0x61B1E0 };
 	const int TEXT_REPLACEMENTS1[3] = { 0x61D9B0, 0x61C788, 0x61B7C8 };
 	const int TEXT_REPLACEMENTS2[3] = { 0x61DD20, 0x61CAF8, 0x61BB38 };
@@ -1097,6 +1528,7 @@ void writeData() {
 	writeStringArray("TEXT/REPLACEMENTS2", TEXT_REPLACEMENTS2[_version], 1576);
 	writeStringArray("TEXT/REPLACEMENTS3", TEXT_REPLACEMENTS3[_version], 82);
 	writeStringArray("TEXT/PRONOUNS", TEXT_PRONOUNS[_version], 15);
+	writeStringArray("MUSIC/PARSER", MUSIC_DATA, 4);
 
 	const int SENTENCES_DEFAULT[3] = { 0x5C0130, 0x5BEFC8, 0x5BE008 };
 	const int SENTENCES_BARBOT[2][3] = {
@@ -1221,6 +1653,39 @@ void writeData() {
 	writeParrotLobbyLinkUpdaterEntries();
 }
 
+void writeGermanData() {
+	writeStringArray("TEXT/PHRASES/DE", 0x23EEC8 + GERMAN_DIFF, 178);
+	writeStringArray("TEXT/REPLACEMENTS1/DE", 0x23F198 + GERMAN_DIFF, 1362);
+	writeStringArray("TEXT/REPLACEMENTS2/DE", 0x2406E8 + GERMAN_DIFF, 816);
+	writeStringArray("TEXT/REPLACEMENTS3/DE", 0x2413B0 + GERMAN_DIFF, 608);
+	writeStringArray("TEXT/REPLACEMENTS4/DE", 0x241D38 + GERMAN_DIFF, 195);
+	writeStringArray("TEXT/PRONOUNS/DE", 0x248610 + GERMAN_DIFF, 15);
+
+
+	const int SENTENCES_BARBOT[2] = { 0x5B00C0, 0x5C5AC8 };
+	const int SENTENCES_BELLBOT[20] = { 0x5CACF8, 0x5D1670 };
+	const int SENTENCES_DESKBOT[3] = { 0x5ED428, 0x5FCEA0, 0x5FCC30 };
+	const int SENTENCES_DOORBOT[4] = { 0x5FFFC8, 0x61A690, 0x61AA38 };
+
+	writeSentenceEntries("Sentences/Default/DE", 0x5C8C70);
+	writeSentenceEntries("Sentences/Barbot/DE", SENTENCES_BARBOT[0]);
+	writeSentenceEntries("Sentences/Barbot2/DE", SENTENCES_BARBOT[1]);
+	writeSentenceEntries("Sentences/Bellbot/DE", SENTENCES_BELLBOT[0]);
+	writeSentenceEntries("Sentences/Bellbot/1/DE", SENTENCES_BELLBOT[1]);
+	writeSentenceEntries("Sentences/Deskbot/DE", SENTENCES_DESKBOT[0]);
+	writeSentenceEntries("Sentences/Deskbot/2/DE", SENTENCES_DESKBOT[1]);
+	writeSentenceEntries("Sentences/Deskbot/3/DE", SENTENCES_DESKBOT[2]);
+	writeSentenceEntries("Sentences/Doorbot/DE", SENTENCES_DOORBOT[0]);
+	writeSentenceEntries("Sentences/Doorbot/1/DE", SENTENCES_DOORBOT[1]);
+	writeSentenceEntries("Sentences/Doorbot/2/DE", SENTENCES_DOORBOT[2]);
+	writeSentenceEntries("Sentences/Liftbot/DE", 0x61CAD0);
+	writeSentenceEntries("Sentences/MaitreD/DE", 0x629EE8);
+	writeSentenceEntries("Sentences/Parrot/DE", 0x633FFC);
+	writeSentenceEntries("Sentences/SuccUBus/DE", 0x637CD8);
+
+	writeMissiveOMatMessagesDE();
+}
+
 void createScriptMap() {
 	Common::File inFile;
 	char line[80];
@@ -1272,7 +1737,7 @@ int main(int argc, char *argv[]) {
 	}
 	resEng.loadFromEXE(argv[1]);
 
-	if (argc >= 3) {
+	if (argc == 4) {
 		resGer.loadFromEXE(argv[2]);
 	}
 
@@ -1298,8 +1763,13 @@ int main(int argc, char *argv[]) {
 
 	writeHeader();
 	writeData();
-	writeFinalEntryHeader();
 
+	if (argc == 4) {
+		inputFile.open(argv[2]);
+		_version = GERMAN;
+		writeGermanData();
+	}
+	writeFinalEntryHeader();
 	inputFile.close();
 	outputFile.close();
 	return 0;

@@ -33,13 +33,13 @@ CSoundManager::CSoundManager() : _musicPercent(75.0), _speechPercent(75.0),
 	_masterPercent(75.0), _parrotPercent(75.0), _handleCtr(1) {
 }
 
-uint CSoundManager::getModeVolume(int mode) {
+uint CSoundManager::getModeVolume(VolumeMode mode) {
 	switch (mode) {
-	case -1:
+	case VOL_NORMAL:
 		return (uint)_masterPercent;
-	case -2:
+	case VOL_QUIET:
 		return (uint)(_masterPercent * 30 / 100);
-	case -3:
+	case VOL_VERY_QUIET:
 		return (uint)(_masterPercent * 15 / 100);
 	default:
 		return 0;
@@ -148,6 +148,18 @@ CWaveFile *QSoundManager::loadMusic(const CString &name) {
 
 	// Try to load the specified sound
 	if (!waveFile->loadMusic(name)) {
+		delete waveFile;
+		return nullptr;
+	}
+
+	return waveFile;
+}
+
+CWaveFile *QSoundManager::loadMusic(CAudioBuffer *buffer, DisposeAfterUse::Flag disposeAfterUse) {
+	CWaveFile *waveFile = new CWaveFile();
+
+	// Try to load the specified audio buffer
+	if (!waveFile->loadMusic(buffer, disposeAfterUse)) {
 		delete waveFile;
 		return nullptr;
 	}
@@ -311,7 +323,9 @@ void QSoundManager::setPolarPosition(int handle, double range, double azimuth, d
 	}
 }
 
-bool QSoundManager::isActive(int handle) const {
+bool QSoundManager::isActive(int handle) {
+	resetChannel(10);
+
 	for (uint idx = 0; idx < _slots.size(); ++idx) {
 		if (_slots[idx]._handle == handle)
 			return true;
@@ -320,7 +334,7 @@ bool QSoundManager::isActive(int handle) const {
 	return false;
 }
 
-bool QSoundManager::isActive(const CWaveFile *waveFile) const {
+bool QSoundManager::isActive(const CWaveFile *waveFile) {
 	return _sounds.contains(waveFile);
 }
 
@@ -441,7 +455,7 @@ void QSoundManager::updateVolume(int channel, uint panRate) {
 	case 3:
 	case 4:
 	case 5:
-		volume = (24525 * volume) / 100;
+		volume = (75 * volume) / 100;
 		break;
 	case 6:
 	case 7:

@@ -23,7 +23,9 @@
 #include "titanic/debugger.h"
 #include "titanic/titanic.h"
 #include "titanic/core/tree_item.h"
+#include "titanic/game/movie_tester.h"
 #include "titanic/pet_control/pet_control.h"
+#include "titanic/support/movie.h"
 
 namespace Titanic {
 
@@ -33,6 +35,8 @@ Debugger::Debugger(TitanicEngine *vm) : GUI::Debugger(), _vm(vm) {
 	registerCmd("room",			WRAP_METHOD(Debugger, cmdRoom));
 	registerCmd("pet",			WRAP_METHOD(Debugger, cmdPET));
 	registerCmd("item",			WRAP_METHOD(Debugger, cmdItem));
+	registerCmd("movie",		WRAP_METHOD(Debugger, cmdMovie));
+	registerCmd("sound",		WRAP_METHOD(Debugger, cmdSound));
 }
 
 int Debugger::strToInt(const char *s) {
@@ -194,7 +198,7 @@ bool Debugger::cmdPET(int argc, const char **argv) {
 
 		if (s == "on") {
 			gameState._petActive = true;
-			gameManager.initBounds();
+			gameManager.markAllDirty();
 			debugPrintf("PET is now on\n");
 			return true;
 		} else if (s == "off") {
@@ -248,7 +252,7 @@ bool Debugger::cmdItem(int argc, const char **argv) {
 		} else if (CString(argv[2]) == "add") {
 			// Ensure the PET is active and add the item to the inventory
 			gameState._petActive = true;
-			gameManager.initBounds();
+			gameManager.markAllDirty();
 			item->petAddToInventory();
 
 			return false;
@@ -258,6 +262,72 @@ bool Debugger::cmdItem(int argc, const char **argv) {
 	}
 
 	return true;
+}
+
+bool Debugger::cmdMovie(int argc, const char **argv) {
+	if (argc < 2) {
+		debugPrintf("movie filename.avi [startFrame endFrame]\n");
+		return true;
+	}
+
+	CViewItem *view = g_vm->_window->_gameManager->getView();
+	CMovieTester *tester = static_cast<CMovieTester *>(
+		view->findChildInstanceOf(CMovieTester::_type));
+	if (!tester) {
+		// No movie tester present, so create one
+		tester = new CMovieTester();
+		tester->addUnder(view);
+	}
+
+	CString filename(argv[1]);
+
+	if (filename == "reverse" || filename == "doubletake") {
+		// Tests reverse playback transparency frames
+		tester->loadMovie("y457.avi");
+		if (filename == "reverse") {
+			tester->playMovie(436, 0, MOVIE_STOP_PREVIOUS);
+		} else {
+			tester->playMovie(436, 432, MOVIE_STOP_PREVIOUS);
+			tester->playMovie(432, 436, 0);
+			tester->playMovie(436, 432, 0);
+			tester->playMovie(432, 436, 0);
+		}
+
+		return false;
+	}
+
+	if (!filename.hasSuffix(".avi"))
+		filename += ".avi";
+	tester->loadMovie(filename);
+
+	if (argc == 2) {
+		tester->playMovie(MOVIE_STOP_PREVIOUS);
+	} else {
+		uint startFrame = strToInt(argv[2]);
+		uint endFrame = strToInt(argv[2]);
+		tester->playMovie(startFrame, endFrame, MOVIE_STOP_PREVIOUS);
+	}
+
+	return false;
+}
+
+bool Debugger::cmdSound(int argc, const char **argv) {
+	if (argc == 2) {
+		Common::String name = argv[1];
+		const char *ch = strchr(argv[1], '!');
+		if (ch)
+			name.setChar('#', ch - argv[1]);
+		if (!name.contains("#"))
+			name = "z#" + name;
+
+		CGameManager *gameManager = g_vm->_window->_gameManager;
+		CProximity prox;
+		gameManager->_sound.playSound(name, prox);
+		return false;
+	} else {
+		debugPrintf("sound <name>\n");
+		return true;
+	}
 }
 
 } // End of namespace Titanic

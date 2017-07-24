@@ -55,7 +55,7 @@ enum TitanicDebugChannels {
 	kDebugCore      = 1 << 0,
 	kDebugScripts	= 1 << 1,
 	kDebugGraphics	= 1 << 2,
-	kDebugSound     = 1 << 3
+	kDebugStarfield = 1 << 3
 };
 
 #define TITANIC_SAVEGAME_VERSION 1
@@ -63,14 +63,16 @@ enum TitanicDebugChannels {
 #define SCREEN_WIDTH 640
 #define SCREEN_HEIGHT 480
 
-#define ERROR_BASIC 1
-#define ERROR_INTERMEDIATE 2
-#define ERROR_DETAILED 3
+#define DEBUG_BASIC 1
+#define DEBUG_INTERMEDIATE 2
+#define DEBUG_DETAILED 3
 
 #define TOTAL_ITEMS 46
 #define TOTAL_ROOMS 34
 
 #define MAX_SAVES 99
+
+#define SOUND(enName, deName) (g_vm->isGerman() ? deName : enName)
 
 struct TitanicGameDescription;
 class TitanicEngine;
@@ -80,7 +82,7 @@ private:
 	/**
 	 * Handles basic initialization
 	 */
-	void initialize();
+	bool initialize();
 
 	/**
 	 * Handles game deinitialization
@@ -122,6 +124,8 @@ public:
 	CString _itemObjects[TOTAL_ITEMS];
 	StringArray _itemIds;
 	StringArray _roomNames;
+	Strings _strings;
+	CString _stateRoomExitView;
 public:
 	TitanicEngine(OSystem *syst, const TitanicGameDescription *gameDesc);
 	virtual ~TitanicEngine();
@@ -147,8 +151,14 @@ public:
 	 */
 	virtual Common::Error saveGameState(int slot, const Common::String &desc);
 
+	/**
+	 * Gets the game features
+	 */
 	uint32 getFeatures() const;
-	bool isDemo() const;
+
+	/**
+	 * Returns the language for the game
+	 */
 	Common::Language getLanguage() const;
 
 	/**
@@ -162,6 +172,11 @@ public:
 	uint getRandomNumber(uint max) { return _randomSource.getRandomNumber(max); }
 
 	/**
+	 * Returns a random floating point number between 0.0 to 65535.0
+	 */
+	double getRandomFloat() { return getRandomNumber(0xfffffffe) * 0.000015259022; }
+
+	/**
 	 * Support method that generates a savegame name
 	 * @param slot		Slot number
 	 */
@@ -172,6 +187,11 @@ public:
 	 * and if it exists, returns it's description
 	 */
 	CString getSavegameName(int slot);
+
+	/**
+	 * Displays an error message in a GUI dialog
+	 */
+	void GUIError(const char *msg, ...) GCC_PRINTF(2, 3);
 };
 
 extern TitanicEngine *g_vm;

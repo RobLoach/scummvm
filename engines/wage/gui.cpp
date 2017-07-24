@@ -49,6 +49,7 @@
 #include "common/system.h"
 #include "graphics/cursorman.h"
 #include "graphics/primitives.h"
+#include "graphics/macgui/macfontmanager.h"
 #include "graphics/macgui/macwindowmanager.h"
 #include "graphics/macgui/macwindow.h"
 #include "graphics/macgui/macmenu.h"
@@ -61,7 +62,7 @@
 
 namespace Wage {
 
-static const Graphics::MenuData menuSubItems[] = {
+static const Graphics::MacMenuData menuSubItems[] = {
 	{ kMenuHighLevel, "File",	0, 0, false },
 	{ kMenuHighLevel, "Edit",	0, 0, false },
 	{ kMenuFile, "New",			kMenuActionNew, 0, false },
@@ -172,11 +173,23 @@ Gui::Gui(WageEngine *engine) {
 	_sceneWindow = _wm.addWindow(false, false, false);
 	_sceneWindow->setCallback(sceneWindowCallback, this);
 
-	_consoleWindow = _wm.addWindow(true, true, true);
+#ifdef USE_MACTEXTWINDOW
+	//TODO: Make the font we use here work
+	// (currently MacFontRun::getFont gets called with the fonts being uninitialized,
+	// so it initializes them by itself with default params, and not those here)
+	const Graphics::Font *font = _wm._fontMan->getFont(Graphics::MacFont(Graphics::kMacFontChicago, 8));
+
+	uint maxWidth = _screen.w;
+
+	_consoleWindow = new Graphics::MacTextWindow(&_wm, const_cast<Graphics::Font *>(font), kColorBlack, kColorWhite,
+		 maxWidth, Graphics::kTextAlignLeft);
+#else
+   _consoleWindow = _wm.addWindow(true, true, true);
+#endif // USE_MACTEXTWINDOW
+
 	_consoleWindow->setCallback(consoleWindowCallback, this);
 
 	loadBorders();
-
 }
 
 Gui::~Gui() {
@@ -209,7 +222,6 @@ void Gui::draw() {
 
 		_sceneWindow->setDimensions(*_scene->_designBounds);
 		_sceneWindow->setTitle(_scene->_name);
-		_consoleWindow->setDimensions(*_scene->_textBounds);
 
 		_wm.setFullRefresh(true);
 	}

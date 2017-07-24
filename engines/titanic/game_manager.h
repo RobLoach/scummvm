@@ -48,7 +48,7 @@ private:
 	CBackgroundSoundMaker *_soundMaker;
 	CMovie *_movie;
 	CRoomItem *_movieRoom;
-	int _field54;
+	int _transitionCtr;
 	CVideoSurface *_movieSurface;
 	uint _lastDiskTicksCount;
 	uint _tickCount2;
@@ -147,11 +147,6 @@ public:
 	void unlockInputHandler() { _inputHandler.decLockCount(); }
 
 	/**
-	 * Set default screen bounds
-	 */
-	void initBounds();
-
-	/**
 	 * Plays a movie clip
 	 */
 	void playClip(CMovieClip *clip, CRoomItem *oldRoom, CRoomItem *newRoom);
@@ -162,21 +157,35 @@ public:
 	void update();
 
 	/**
-	 * Called when the view changes
+	 * Called when the room changes
 	 */
-	void viewChange();
-
-	bool test54() const { return !_field54; }
-
-	void inc54() { ++_field54; }
-
-	void dec54() { --_field54; }
+	void roomChange();
 
 	/**
-	 * Extends the bounds of the currently affected game display area
-	 * to include the passed rect
+	 * Returns true if no transition is currently in progress
 	 */
-	void extendBounds(const Rect &r);
+	bool isntTransitioning() const { return !_transitionCtr; }
+
+	/**
+	 * Increments the number of active transitions
+	 */
+	void incTransitions() { ++_transitionCtr; }
+
+	/**
+	 * Decremenst the number of active transitions
+	 */
+	void decTransitions() { --_transitionCtr; }
+
+	/**
+	 * Extends the bounds of the currently dirty area of the
+	 * game screen to include the specified area
+	 */
+	void addDirtyRect(const Rect &r);
+
+	/**
+	 * Marks the entire screen as dirty, requiring redraw
+	 */
+	void markAllDirty();
 
 	/**
 	 * Set and return the current screen manager

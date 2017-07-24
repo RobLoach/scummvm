@@ -43,7 +43,7 @@ namespace Sci {
 
 #pragma mark RobotAudioStream
 
-extern void deDPCM16(int16 *out, const byte *in, const uint32 numBytes, int16 &sample);
+extern void deDPCM16Mono(int16 *out, const byte *in, const uint32 numBytes, int16 &sample);
 
 RobotAudioStream::RobotAudioStream(const int32 bufferSize) :
 	_loopBuffer((byte *)malloc(bufferSize)),
@@ -65,36 +65,30 @@ static void interpolateChannel(int16 *buffer, int32 numSamples, const int8 buffe
 		return;
 	}
 
+	int16 *inBuffer, *outBuffer;
+	int16 sample, previousSample;
+
 	if (bufferIndex) {
-		int16 lastSample = *buffer;
-		int sample = lastSample;
-		int16 *target = buffer + 1;
-		const int16 *source = buffer + 2;
+		outBuffer = buffer + 1;
+		inBuffer = buffer + 2;
+		previousSample = sample = *buffer;
 		--numSamples;
-
-		while (numSamples--) {
-			sample = *source + lastSample;
-			lastSample = *source;
-			sample /= 2;
-			*target = sample;
-			source += 2;
-			target += 2;
-		}
-
-		*target = sample;
 	} else {
-		int16 *target = buffer;
-		const int16 *source = buffer + 1;
-		int16 lastSample = *source;
+		outBuffer = buffer;
+		inBuffer = buffer + 1;
+		previousSample = sample = *inBuffer;
+	}
 
-		while (numSamples--) {
-			int sample = *source + lastSample;
-			lastSample = *source;
-			sample /= 2;
-			*target = sample;
-			source += 2;
-			target += 2;
-		}
+	while (numSamples--) {
+		sample = (*inBuffer + previousSample) >> 1;
+		previousSample = *inBuffer;
+		*outBuffer = sample;
+		inBuffer += RobotAudioStream::kEOSExpansion;
+		outBuffer += RobotAudioStream::kEOSExpansion;
+	}
+
+	if (bufferIndex) {
+		*outBuffer = sample;
 	}
 }
 
@@ -134,7 +128,7 @@ bool RobotAudioStream::addPacket(const RobotAudioPacket &packet) {
 		return true;
 	}
 
-	const int32 packetEndByte = packet.position + (packet.dataSize * sizeof(int16) * kEOSExpansion);
+	const int32 packetEndByte = packet.position + (packet.dataSize * (sizeof(int16) + kEOSExpansion));
 
 	// Already read all the way past this packet (or already wrote valid samples
 	// to this channel all the way past this packet), so discard it
@@ -181,7 +175,7 @@ void RobotAudioStream::fillRobotBuffer(const RobotAudioPacket &packet, const int
 		}
 
 		int16 carry = 0;
-		deDPCM16((int16 *)_decompressionBuffer, packet.data, packet.dataSize, carry);
+		deDPCM16Mono((int16 *)_decompressionBuffer, packet.data, packet.dataSize, carry);
 		_decompressionBufferPosition = packet.position;
 	}
 
@@ -228,12 +222,12 @@ void RobotAudioStream::fillRobotBuffer(const RobotAudioPacket &packet, const int
 		targetBytePosition = _jointMin[bufferIndex] % _loopBufferSize;
 		if (targetBytePosition >= packetEndByte) {
 			numBytesToEnd = _loopBufferSize - targetBytePosition;
-			interpolateChannel((int16 *)(_loopBuffer + targetBytePosition), numBytesToEnd / sizeof(int16) / kEOSExpansion, 0);
+			interpolateChannel((int16 *)(_loopBuffer + targetBytePosition), numBytesToEnd / (sizeof(int16) + kEOSExpansion), 0);
 			targetBytePosition = bufferIndex ? 2 : 0;
 		}
 		numBytesToEnd = packetEndByte - targetBytePosition;
 		if (numBytesToEnd > 0) {
-			interpolateChannel((int16 *)(_loopBuffer + targetBytePosition), numBytesToEnd / sizeof(int16) / kEOSExpansion, 0);
+			interpolateChannel((int16 *)(_loopBuffer + targetBytePosition), numBytesToEnd / (sizeof(int16) + kEOSExpansion), 0);
 		}
 	}
 
@@ -246,17 +240,18 @@ void RobotAudioStream::fillRobotBuffer(const RobotAudioPacket &packet, const int
 			copyEveryOtherSample((int16 *)(_loopBuffer + targetBytePosition), (int16 *)(_decompressionBuffer + sourceByte), numBytesToEnd / kEOSExpansion);
 			targetBytePosition = bufferIndex ? 2 : 0;
 		}
-		copyEveryOtherSample((int16 *)(_loopBuffer + targetBytePosition), (int16 *)(_decompressionBuffer + sourceByte + numBytesToEnd), (packetEndByte - targetBytePosition) / sizeof(int16) / kEOSExpansion);
+		copyEveryOtherSample((int16 *)(_loopBuffer + targetBytePosition), (int16 *)(_decompressionBuffer + sourceByte + numBytesToEnd), (packetEndByte - targetBytePosition) / (sizeof(int16) + kEOSExpansion));
 	}
 	_jointMin[bufferIndex] = endByte;
 }
 
 void RobotAudioStream::interpolateMissingSamples(int32 numSamples) {
-	int32 numBytes = numSamples * sizeof(int16) * kEOSExpansion;
+	int32 numBytes = numSamples * (sizeof(int16) + kEOSExpansion);
 	int32 targetPosition = _readHead;
+	const int32 nextReadHeadPosition = _readHeadAbs + numBytes;
 
-	if (_readHeadAbs > _jointMin[1]) {
-		if (_readHeadAbs > _jointMin[0]) {
+	if (nextReadHeadPosition > _jointMin[1]) {
+		if (nextReadHeadPosition > _jointMin[0]) {
 			if (targetPosition + numBytes >= _loopBufferSize) {
 				const int32 numBytesToEdge = (_loopBufferSize - targetPosition);
 				memset(_loopBuffer + targetPosition, 0, numBytesToEdge);
@@ -264,27 +259,27 @@ void RobotAudioStream::interpolateMissingSamples(int32 numSamples) {
 				targetPosition = 0;
 			}
 			memset(_loopBuffer + targetPosition, 0, numBytes);
-			_jointMin[0] += numBytes;
-			_jointMin[1] += numBytes;
+			_jointMin[0] = nextReadHeadPosition;
+			_jointMin[1] = nextReadHeadPosition + sizeof(int16);
 		} else {
 			if (targetPosition + numBytes >= _loopBufferSize) {
-				const int32 numSamplesToEdge = (_loopBufferSize - targetPosition) / sizeof(int16) / kEOSExpansion;
+				const int32 numSamplesToEdge = (_loopBufferSize - targetPosition) / (sizeof(int16) + kEOSExpansion);
 				interpolateChannel((int16 *)(_loopBuffer + targetPosition), numSamplesToEdge, 1);
 				numSamples -= numSamplesToEdge;
 				targetPosition = 0;
 			}
 			interpolateChannel((int16 *)(_loopBuffer + targetPosition), numSamples, 1);
-			_jointMin[1] += numBytes;
+			_jointMin[1] = nextReadHeadPosition + sizeof(int16);
 		}
-	} else if (_readHeadAbs > _jointMin[0]) {
+	} else if (nextReadHeadPosition > _jointMin[0]) {
 		if (targetPosition + numBytes >= _loopBufferSize) {
-			const int32 numSamplesToEdge = (_loopBufferSize - targetPosition) / sizeof(int16) / kEOSExpansion;
+			const int32 numSamplesToEdge = (_loopBufferSize - targetPosition) / (sizeof(int16) + kEOSExpansion);
 			interpolateChannel((int16 *)(_loopBuffer + targetPosition), numSamplesToEdge, 0);
 			numSamples -= numSamplesToEdge;
 			targetPosition = 2;
 		}
 		interpolateChannel((int16 *)(_loopBuffer + targetPosition), numSamples, 0);
-		_jointMin[0] += numBytes;
+		_jointMin[0] = nextReadHeadPosition;
 	}
 }
 
@@ -376,6 +371,8 @@ void RobotDecoder::initStream(const GuiResourceId robotId) {
 		error("Unable to open robot file %s", fileName.c_str());
 	}
 
+	_robotId = robotId;
+
 	const uint16 id = stream->readUint16LE();
 	if (id != 0x16) {
 		error("Invalid robot file %s", fileName.c_str());
@@ -403,12 +400,6 @@ void RobotDecoder::initAudio() {
 	_syncFrame = true;
 
 	_audioRecordInterval = RobotAudioStream::kRobotSampleRate / _frameRate;
-
-	// TODO: Might actually be for all games newer than Lighthouse; check to
-	// see which games have this condition.
-	if (g_sci->getGameId() != GID_LIGHTHOUSE && !(_audioRecordInterval & 1)) {
-		++_audioRecordInterval;
-	}
 
 	_expectedAudioBlockSize = _audioBlockSize - kAudioBlockHeaderSize;
 	_audioBuffer = (byte *)realloc(_audioBuffer, kRobotZeroCompressSize + _expectedAudioBlockSize);
@@ -442,17 +433,16 @@ void RobotDecoder::initAudio() {
 void RobotDecoder::initVideo(const int16 x, const int16 y, const int16 scale, const reg_t plane, const bool hasPalette, const uint16 paletteSize) {
 	_position = Common::Point(x, y);
 
-	if (scale != 128) {
-		_scaleInfo.x = scale;
-		_scaleInfo.y = scale;
-		_scaleInfo.signal = kScaleSignalDoScaling32;
-	}
+	_scaleInfo.x = scale;
+	_scaleInfo.y = scale;
+	_scaleInfo.signal = scale == 128 ? kScaleSignalNone : kScaleSignalManual;
 
 	_plane = g_sci->_gfxFrameout->getPlanes().findByObject(plane);
 	if (_plane == nullptr) {
 		error("Invalid plane %04x:%04x passed to RobotDecoder::open", PRINT_REG(plane));
 	}
 
+	_planeId = plane;
 	_minFrameRate = _frameRate - kMaxFrameRateDrift;
 	_maxFrameRate = _frameRate + kMaxFrameRateDrift;
 
@@ -590,6 +580,8 @@ void RobotDecoder::close() {
 
 	debugC(kDebugLevelVideo, "Closing robot");
 
+	_robotId = -1;
+	_planeId = NULL_REG;
 	_status = kRobotStatusUninitialized;
 	_videoSizes.clear();
 	_recordPositions.clear();
@@ -703,7 +695,7 @@ void RobotDecoder::showFrame(const uint16 frameNo, const uint16 newX, const uint
 					const int16 lowResX = (scaledX * screenToLowResX).toInt();
 					const int16 lowResY = (scaledY2 * screenToLowResY).toInt();
 
-					bitmap.setDisplace(Common::Point(
+					bitmap.setOrigin(Common::Point(
 						(scaledX - (lowResX * lowResToScreenX).toInt()) * -1,
 						(lowResY * lowResToScreenY).toInt() - scaledY1
 					));
@@ -713,7 +705,7 @@ void RobotDecoder::showFrame(const uint16 frameNo, const uint16 newX, const uint
 				} else {
 					const int16 scaledX = _originalScreenItemX[i] + _position.x;
 					const int16 scaledY = _originalScreenItemY[i] + _position.y + bitmap.getHeight() - 1;
-					bitmap.setDisplace(Common::Point(0, bitmap.getHeight() - 1));
+					bitmap.setOrigin(Common::Point(0, bitmap.getHeight() - 1));
 					_screenItemX[i] = scaledX;
 					_screenItemY[i] = scaledY;
 				}
@@ -1348,6 +1340,10 @@ void RobotDecoder::expandCel(byte* target, const byte* source, const int16 celWi
 	}
 }
 
+int16 RobotDecoder::getPriority() const {
+	return _priority;
+}
+
 void RobotDecoder::setPriority(const int16 newPriority) {
 	_priority = newPriority;
 }
@@ -1391,7 +1387,7 @@ void RobotDecoder::doVersion5(const bool shouldSubmitAudio) {
 
 // TODO: Version 6 robot?
 //		int scaleXRemainder;
-		if (_scaleInfo.signal == kScaleSignalDoScaling32) {
+		if (_scaleInfo.signal == kScaleSignalManual) {
 			position.x = (position.x * _scaleInfo.x) / 128;
 // TODO: Version 6 robot?
 //			scaleXRemainder = (position.x * _scaleInfo.x) % 128;
@@ -1436,6 +1432,14 @@ void RobotDecoder::doVersion5(const bool shouldSubmitAudio) {
 			_screenItemList[i] = nullptr;
 		}
 	}
+
+	if (screenItemCount < oldScreenItemCount) {
+		_screenItemList.resize(screenItemCount);
+		_screenItemX.resize(screenItemCount);
+		_screenItemY.resize(screenItemCount);
+		_originalScreenItemX.resize(screenItemCount);
+		_originalScreenItemY.resize(screenItemCount);
+	}
 }
 
 void RobotDecoder::createCels5(const byte *rawVideoData, const int16 numCels, const bool usePalette) {
@@ -1461,7 +1465,7 @@ uint32 RobotDecoder::createCel5(const byte *rawVideoData, const int16 screenItem
 	const int16 screenWidth = g_sci->_gfxFrameout->getCurrentBuffer().screenWidth;
 	const int16 screenHeight = g_sci->_gfxFrameout->getCurrentBuffer().screenHeight;
 
-	Common::Point displace;
+	Common::Point origin;
 	if (scriptWidth == kLowResX && scriptHeight == kLowResY) {
 		const Ratio lowResToScreenX(screenWidth, kLowResX);
 		const Ratio lowResToScreenY(screenHeight, kLowResY);
@@ -1475,22 +1479,22 @@ uint32 RobotDecoder::createCel5(const byte *rawVideoData, const int16 screenItem
 		const int16 lowResX = (scaledX * screenToLowResX).toInt();
 		const int16 lowResY = (scaledY2 * screenToLowResY).toInt();
 
-		displace.x = (scaledX - (lowResX * lowResToScreenX).toInt()) * -1;
-		displace.y = (lowResY * lowResToScreenY).toInt() - scaledY1;
+		origin.x = (scaledX - (lowResX * lowResToScreenX).toInt()) * -1;
+		origin.y = (lowResY * lowResToScreenY).toInt() - scaledY1;
 		_screenItemX[screenItemIndex] = lowResX;
 		_screenItemY[screenItemIndex] = lowResY;
 
-		debugC(kDebugLevelVideo, "Low resolution position c: %d %d l: %d/%d %d/%d d: %d %d s: %d/%d %d/%d x: %d y: %d", celPosition.x, celPosition.y, lowResX, scriptWidth, lowResY, scriptHeight, displace.x, displace.y, scaledX, screenWidth, scaledY2, screenHeight, scaledX - displace.x, scaledY2 - displace.y);
+		debugC(kDebugLevelVideo, "Low resolution position c: %d %d l: %d/%d %d/%d d: %d %d s: %d/%d %d/%d x: %d y: %d", celPosition.x, celPosition.y, lowResX, scriptWidth, lowResY, scriptHeight, origin.x, origin.y, scaledX, screenWidth, scaledY2, screenHeight, scaledX - origin.x, scaledY2 - origin.y);
 	} else {
 		const int16 highResX = celPosition.x + _position.x;
 		const int16 highResY = celPosition.y + _position.y + celHeight - 1;
 
-		displace.x = 0;
-		displace.y = celHeight - 1;
+		origin.x = 0;
+		origin.y = celHeight - 1;
 		_screenItemX[screenItemIndex] = highResX;
 		_screenItemY[screenItemIndex] = highResY;
 
-		debugC(kDebugLevelVideo, "High resolution position c: %d %d s: %d %d d: %d %d", celPosition.x, celPosition.y, highResX, highResY, displace.x, displace.y);
+		debugC(kDebugLevelVideo, "High resolution position c: %d %d s: %d %d d: %d %d", celPosition.x, celPosition.y, highResX, highResY, origin.x, origin.y);
 	}
 
 	_originalScreenItemX[screenItemIndex] = celPosition.x;
@@ -1500,9 +1504,9 @@ uint32 RobotDecoder::createCel5(const byte *rawVideoData, const int16 screenItem
 
 	SciBitmap &bitmap = *_segMan->lookupBitmap(_celHandles[screenItemIndex].bitmapId);
 	assert(bitmap.getWidth() == celWidth && bitmap.getHeight() == celHeight);
-	assert(bitmap.getScaledWidth() == _xResolution && bitmap.getScaledHeight() == _yResolution);
+	assert(bitmap.getXResolution() == _xResolution && bitmap.getYResolution() == _yResolution);
 	assert(bitmap.getHunkPaletteOffset() == (uint32)bitmap.getWidth() * bitmap.getHeight() + SciBitmap::getBitmapHeaderSize());
-	bitmap.setDisplace(displace);
+	bitmap.setOrigin(origin);
 
 	byte *targetBuffer = nullptr;
 	if (_verticalScaleFactor == 100) {

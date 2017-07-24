@@ -50,8 +50,7 @@ class Shader;
 #endif
 
 enum {
-	GFX_LINEAR = 0,
-	GFX_NEAREST = 1
+	GFX_OPENGL = 0
 };
 
 class OpenGLGraphicsManager : virtual public GraphicsManager {
@@ -213,7 +212,7 @@ private:
 #ifdef USE_RGB_COLOR
 		    gameFormat(),
 #endif
-		    aspectRatioCorrection(false), graphicsMode(GFX_LINEAR) {
+		    aspectRatioCorrection(false), graphicsMode(GFX_OPENGL), filtering(true) {
 		}
 
 		bool valid;
@@ -224,6 +223,7 @@ private:
 #endif
 		bool aspectRatioCorrection;
 		int graphicsMode;
+		bool filtering;
 
 		bool operator==(const VideoState &right) {
 			return gameWidth == right.gameWidth && gameHeight == right.gameHeight
@@ -231,7 +231,8 @@ private:
 			    && gameFormat == right.gameFormat
 #endif
 			    && aspectRatioCorrection == right.aspectRatioCorrection
-			    && graphicsMode == right.graphicsMode;
+			    && graphicsMode == right.graphicsMode
+				&& filtering == right.filtering;
 		}
 
 		bool operator!=(const VideoState &right) {
@@ -295,8 +296,9 @@ protected:
 	 * uses Common::DumpFile for writing the screenshot.
 	 *
 	 * @param filename The output filename.
+	 * @return true on success, false otherwise
 	 */
-	void saveScreenshot(const Common::String &filename) const;
+	bool saveScreenshot(const Common::String &filename) const;
 
 private:
 	//
@@ -595,14 +597,6 @@ private:
 		kOSDIconTopMargin = 10,
 		kOSDIconRightMargin = 10
 	};
-
-	/**
-	 * Mutex for the OSD draw calls.
-	 *
-	 * Mutex to allow displayMessageOnOSD and displayActivityIconOnOSD
-	 * to be used from the audio and network threads.
-	 */
-	Common::Mutex _osdMutex;
 #endif
 };
 

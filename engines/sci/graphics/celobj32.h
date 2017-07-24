@@ -27,6 +27,7 @@
 #include "common/rect.h"
 #include "sci/resource.h"
 #include "sci/engine/vm_types.h"
+#include "sci/util.h"
 
 namespace Sci {
 typedef Common::Rational Ratio;
@@ -122,6 +123,21 @@ struct CelInfo32 {
 	inline bool operator!=(const CelInfo32 &other) {
 		return !(*this == other);
 	}
+
+	inline Common::String toString() const {
+		switch (type) {
+		case kCelTypeView:
+			return Common::String::format("view %u, loop %d, cel %d", resourceId, loopNo, celNo);
+		case kCelTypePic:
+			return Common::String::format("pic %u, cel %d", resourceId, celNo);
+		case kCelTypeColor:
+			return Common::String::format("color %d", color);
+		case kCelTypeMem:
+			return Common::String::format("mem %04x:%04x", PRINT_REG(bitmap));
+		default:
+			assert(!"Should never happen");
+		}
+	}
 };
 
 class CelObj;
@@ -141,13 +157,20 @@ typedef Common::Array<CelCacheEntry> CelCache;
 #pragma mark -
 #pragma mark CelScaler
 
+enum {
+	/**
+	 * The maximum size of a row/column of scaled pixel data.
+	 */
+	kCelScalerTableSize = 4096
+};
+
 struct CelScalerTable {
 	/**
 	 * A lookup table of indexes that should be used to find
 	 * the correct column to read from the source bitmap
 	 * when drawing a scaled version of the source bitmap.
 	 */
-	int valuesX[4096];
+	int valuesX[kCelScalerTableSize];
 
 	/**
 	 * The ratio used to generate the x-values.
@@ -159,7 +182,7 @@ struct CelScalerTable {
 	 * the correct row to read from a source bitmap when
 	 * drawing a scaled version of the source bitmap.
 	 */
-	int valuesY[4096];
+	int valuesY[kCelScalerTableSize];
 
 	/**
 	 * The ratio used to generate the y-values.
@@ -279,7 +302,7 @@ public:
 	/**
 	 * TODO: Documentation
 	 */
-	Common::Point _displace;
+	Common::Point _origin;
 
 	/**
 	 * The dimensions of the original coordinate system for
@@ -294,21 +317,21 @@ public:
 	 * scriptWidth/Height but seems to typically be changed
 	 * to more closely match the native screen resolution.
 	 */
-	uint16 _scaledWidth, _scaledHeight;
+	uint16 _xResolution, _yResolution;
 
 	/**
 	 * The skip (transparent) color for the cel. When
 	 * compositing, any pixels matching this color will not
 	 * be copied to the buffer.
 	 */
-	uint8 _transparentColor;
+	uint8 _skipColor;
 
 	/**
 	 * Whether or not this cel has any transparent regions.
 	 * This is used for optimised drawing of non-transparent
 	 * cels.
 	 */
-	bool _transparent; // TODO: probably "skip"?
+	bool _transparent;
 
 	/**
 	 * The compression type for the pixel data for this cel.
@@ -394,7 +417,7 @@ public:
 	 * Retrieves a pointer to the raw resource data for this
 	 * cel. This method cannot be used with a CelObjColor.
 	 */
-	virtual byte *getResPointer() const = 0;
+	virtual const SciSpan<const byte> getResPointer() const = 0;
 
 	/**
 	 * Reads the pixel at the given coordinates. This method
@@ -516,7 +539,7 @@ public:
 	void draw(Buffer &target, const Common::Rect &targetRect, const Common::Point &scaledPosition, bool mirrorX, const Ratio &scaleX, const Ratio &scaleY);
 
 	virtual CelObjView *duplicate() const override;
-	virtual byte *getResPointer() const override;
+	virtual const SciSpan<const byte> getResPointer() const override;
 };
 
 #pragma mark -
@@ -561,7 +584,7 @@ public:
 	virtual void draw(Buffer &target, const Common::Rect &targetRect, const Common::Point &scaledPosition, const bool mirrorX) override;
 
 	virtual CelObjPic *duplicate() const override;
-	virtual byte *getResPointer() const override;
+	virtual const SciSpan<const byte> getResPointer() const override;
 };
 
 #pragma mark -
@@ -579,7 +602,7 @@ public:
 	virtual ~CelObjMem() override {};
 
 	virtual CelObjMem *duplicate() const override;
-	virtual byte *getResPointer() const override;
+	virtual const SciSpan<const byte> getResPointer() const override;
 };
 
 #pragma mark -
@@ -603,7 +626,7 @@ public:
 	virtual void draw(Buffer &target, const Common::Rect &targetRect, const Common::Point &scaledPosition, const bool mirrorX) override;
 
 	virtual CelObjColor *duplicate() const override;
-	virtual byte *getResPointer() const override;
+	virtual const SciSpan<const byte> getResPointer() const override;
 };
 } // End of namespace Sci
 

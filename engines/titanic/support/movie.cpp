@@ -50,15 +50,9 @@ void CMovie::init() {
 }
 
 void CMovie::deinit() {
-	// Delete each movie in turn
-	for (CMovieList::iterator i = _playingMovies->begin(); i != _playingMovies->end(); ) {
-		// We need to increment iterator before deleting movie,
-		// since the CMovie destructor calls removeFromPlayingMovies
-		CMovie *movie = *i;
-		++i;
-		delete movie;
-	}
-
+	// At this point, there shouldn't be any playing movies left,
+	// since their owning objects should have freed them
+	assert(_playingMovies->empty());
 	delete _playingMovies;
 	delete _movieSurface;
 }
@@ -124,23 +118,19 @@ void OSMovie::play(uint startFrame, uint endFrame, uint initialFrame, uint flags
 
 void OSMovie::playCutscene(const Rect &drawRect, uint startFrame, uint endFrame) {
 	if (!_movieSurface)
-		_movieSurface = CScreenManager::_screenManagerPtr->createSurface(600, 340);
-
-	bool widthLess = _videoSurface->getWidth() < 600;
-	bool heightLess = _videoSurface->getHeight() < 340;
-	Rect r(drawRect.left, drawRect.top,
-		drawRect.left + (widthLess ? CLIP_WIDTH_REDUCED : CLIP_WIDTH),
-		drawRect.top + (heightLess ? CLIP_HEIGHT_REDUCED : CLIP_HEIGHT)
-	);
+		_movieSurface = CScreenManager::_screenManagerPtr->createSurface(600, 340, 32);
 
 	// Set a new event target whilst the clip plays, so standard scene drawing isn't called
 	CEventTarget eventTarget;
 	g_vm->_events->addTarget(&eventTarget);
 
-	_aviSurface.setFrame(startFrame);
-	_aviSurface.playCutscene(r, startFrame, endFrame);
+	_aviSurface.playCutscene(drawRect, startFrame, endFrame);
 
 	g_vm->_events->removeTarget();
+}
+
+void OSMovie::pause() {
+	_aviSurface.pause();
 }
 
 void OSMovie::stop() {
@@ -149,7 +139,7 @@ void OSMovie::stop() {
 }
 
 void OSMovie::addEvent(int frameNumber, CGameObject *obj) {
-	if (_aviSurface.addEvent(frameNumber, obj)) {
+	if (_aviSurface.addEvent(&frameNumber, obj)) {
 		CMovieFrameMsg frameMsg(frameNumber, 0);
 		frameMsg.execute(obj);
 	}
@@ -157,23 +147,25 @@ void OSMovie::addEvent(int frameNumber, CGameObject *obj) {
 
 void OSMovie::setFrame(uint frameNumber) {
 	_aviSurface.setFrame(frameNumber);
-	_videoSurface->setMovieFrameSurface(_aviSurface.getSecondarySurface());
+	_videoSurface->setTransparencySurface(_aviSurface.getSecondarySurface());
 }
 
 bool OSMovie::handleEvents(CMovieEventList &events) {
+	// WORKAROUND: If a movie is paused as part of initial
+	// scene loading, now's the time to un-pause it
+	_aviSurface.resume();
+
 	if (!_aviSurface.isPlaying())
 		return false;
-	if (!_aviSurface.isNextFrame())
-		return _aviSurface.isPlaying();
 
 	// Handle updating the frame
 	while (_aviSurface.isPlaying() && _aviSurface.isNextFrame()) {
 		_aviSurface.handleEvents(events);
-		_videoSurface->setMovieFrameSurface(_aviSurface.getSecondarySurface());
-	}
+		_videoSurface->setTransparencySurface(_aviSurface.getSecondarySurface());
 
-	// Flag there's a video frame
-	_hasVideoFrame = true;
+		// Flag there's a video frame
+		_hasVideoFrame = true;
+	}
 
 	return _aviSurface.isPlaying();
 }
@@ -203,8 +195,8 @@ void OSMovie::setFrameRate(double rate) {
 	_aviSurface.setFrameRate(rate);
 }
 
-Graphics::ManagedSurface *OSMovie::duplicateFrame() const {
-	return _aviSurface.duplicateSecondaryFrame();
+Graphics::ManagedSurface *OSMovie::duplicateTransparency() const {
+	return _aviSurface.duplicateTransparency();
 }
 
 } // End of namespace Titanic

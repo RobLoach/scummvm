@@ -57,14 +57,6 @@ private:
 	GfxCache *_cache;
 
 	/**
-	 * The resource ID of the default font used by the game.
-	 *
-	 * @todo Check all SCI32 games to learn what their
-	 * default font is.
-	 */
-	static int16 _defaultFontId;
-
-	/**
 	 * The width and height of the currently active text
 	 * bitmap, in text-system coordinates.
 	 *
@@ -151,14 +143,19 @@ private:
 		Common::Rect scaledRect(rect);
 		int16 scriptWidth = g_sci->_gfxFrameout->getCurrentBuffer().scriptWidth;
 		int16 scriptHeight = g_sci->_gfxFrameout->getCurrentBuffer().scriptHeight;
-		Ratio scaleX(_scaledWidth, scriptWidth);
-		Ratio scaleY(_scaledHeight, scriptHeight);
+		Ratio scaleX(_xResolution, scriptWidth);
+		Ratio scaleY(_yResolution, scriptHeight);
 		mulinc(scaledRect, scaleX, scaleY);
 		return scaledRect;
 	}
 
 public:
 	GfxText32(SegManager *segMan, GfxCache *fonts);
+
+	/**
+	 * Initialises static GfxText32 members.
+	 */
+	static void init();
 
 	/**
 	 * The memory handle of the currently active bitmap.
@@ -169,13 +166,13 @@ public:
 	 * The size of the x-dimension of the coordinate system
 	 * used by the text renderer. Static since it was global in SSCI.
 	 */
-	static int16 _scaledWidth;
+	static int16 _xResolution;
 
 	/**
 	 * The size of the y-dimension of the coordinate system
 	 * used by the text renderer. Static since it was global in SSCI.
 	 */
-	static int16 _scaledHeight;
+	static int16 _yResolution;
 
 	/**
 	 * The currently active font resource used to write text
@@ -199,12 +196,12 @@ public:
 
 	inline int scaleUpWidth(int value) const {
 		const int scriptWidth = g_sci->_gfxFrameout->getCurrentBuffer().scriptWidth;
-		return (value * scriptWidth + _scaledWidth - 1) / _scaledWidth;
+		return (value * scriptWidth + _xResolution - 1) / _xResolution;
 	}
 
 	inline int scaleUpHeight(int value) const {
 		const int scriptHeight = g_sci->_gfxFrameout->getCurrentBuffer().scriptHeight;
-		return (value * scriptHeight + _scaledHeight - 1) / _scaledHeight;
+		return (value * scriptHeight + _yResolution - 1) / _yResolution;
 	}
 
 	/**
@@ -237,6 +234,11 @@ public:
 	 * calculation of text dimensions.
 	 */
 	void setFont(const GuiResourceId fontId);
+
+	/**
+	 * Gets the pixel height of the currently loaded font.
+	 */
+	int16 getScaledFontHeight() const;
 
 	/**
 	 * Gets the width of a character.

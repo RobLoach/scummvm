@@ -105,6 +105,8 @@ class GameLoader : public CObject {
 	bool preloadScene(int sceneId, int entranceId);
 	bool unloadScene(int sceneId);
 
+	void addPreloadItem(PreloadItem *item);
+
 	void updateSystems(int counterdiff);
 
 	int getSceneTagBySceneId(int sceneId, SceneTag **st);
@@ -112,8 +114,8 @@ class GameLoader : public CObject {
 	void saveScenePicAniInfos(int sceneId);
 	PicAniInfo **savePicAniInfos(Scene *sc, int flag1, int flag2, int *picAniInfoCount);
 
-	void readSavegame(const char *fname);
-	void writeSavegame(Scene *sc, const char *fname);
+	bool readSavegame(const char *fname);
+	bool writeSavegame(Scene *sc, const char *fname);
 
 	void addVar(GameVar *var, GameVar *subvar);
 
@@ -131,7 +133,7 @@ class GameLoader : public CObject {
 	int16 _field_FA;
 	PreloadItems _preloadItems;
 	GameVar *_gameVar;
-	char *_gameName;
+	Common::String _gameName;
 	ExCommand _exCommand;
 	int _updateCounter;
 	int _preloadSceneId;

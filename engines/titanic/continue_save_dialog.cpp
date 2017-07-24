@@ -54,9 +54,10 @@ CContinueSaveDialog::~CContinueSaveDialog() {
 }
 
 void CContinueSaveDialog::addSavegame(int slot, const CString &name) {
-	assert(_saves.size() < SAVEGAME_SLOTS_COUNT);
-	_slotNames[_saves.size()].setText(name);
-	_saves.push_back(SaveEntry(slot, name));
+	if (_saves.size() < SAVEGAME_SLOTS_COUNT) {
+		_slotNames[_saves.size()].setText(name);
+		_saves.push_back(SaveEntry(slot, name));
+	}
 }
 
 Rect CContinueSaveDialog::getSlotBounds(int index) {
@@ -74,6 +75,8 @@ int CContinueSaveDialog::show() {
 	while (!g_vm->shouldQuit() && _selectedSlot == -999) {
 		g_vm->_events->pollEventsAndWait();
 	}
+	if (g_vm->shouldQuit())
+		_selectedSlot = -2;
 
 	return _selectedSlot;
 }
@@ -93,6 +96,8 @@ void CContinueSaveDialog::render() {
 	Graphics::Screen &screen = *g_vm->_screen;
 	screen.clear();
 	screen.blitFrom(_backdrop, Common::Point(48, 22));
+	CScreenManager::_screenManagerPtr->setSurfaceBounds(SURFACE_PRIMARY,
+		Rect(48, 22, 48 + _backdrop.w, 22 + _backdrop.h));
 
 	if (_evilTwinShown)
 		screen.blitFrom(_evilTwin, Common::Point(78, 59));

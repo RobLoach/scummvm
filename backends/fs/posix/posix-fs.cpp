@@ -20,6 +20,8 @@
  *
  */
 
+#if defined(POSIX) || defined(PLAYSTATION3) || defined(PSP2)
+
 // Re-enable some forbidden symbols to avoid clashes with stat.h and unistd.h.
 // Also with clock() in sys/time.h in some Mac OS X SDKs.
 #define FORBIDDEN_SYMBOL_EXCEPTION_time_h
@@ -35,9 +37,19 @@
 #include "../../platform/libretro/libretro-common/include/retro_dirent.h"
 #include "../../platform/libretro/libretro-common/include/retro_stat.h"
 #include "../../platform/libretro/libretro-common/include/file/file_path.h"
+
+#include <sys/param.h>
+#include <sys/stat.h>
+#ifdef PSP2
+#include "backends/fs/psp2/psp2-dirent.h"
+#define mkdir sceIoMkdir
+#else
+#include <dirent.h>
+#endif
 #include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
+
 
 void POSIXFilesystemNode::setFlags()
 {
@@ -165,11 +177,11 @@ Common::WriteStream *POSIXFilesystemNode::createWriteStream() {
 	return StdioStream::makeFromPath(getPath(), true);
 }
 
-bool POSIXFilesystemNode::create(bool isDir) {
+bool POSIXFilesystemNode::create(bool isDirectoryFlag) {
 	bool success;
 
-	if (isDir) {
-		success = mkdir_norecurse(_path.c_str());
+	if (isDirectoryFlag) {
+		success = mkdir(_path.c_str(), 0755) == 0;
 	} else {
 		int fd = open(_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0755);
 		success = fd >= 0;
@@ -182,12 +194,12 @@ bool POSIXFilesystemNode::create(bool isDir) {
 	if (success) {
 		setFlags();
 		if (_isValid) {
-			if (_isDirectory != isDir) warning("failed to create %s: got %s", isDir ? "directory" : "file", _isDirectory ? "directory" : "file");
-			return _isDirectory == isDir;
+			if (_isDirectory != isDirectoryFlag) warning("failed to create %s: got %s", isDirectoryFlag ? "directory" : "file", _isDirectory ? "directory" : "file");
+			return _isDirectory == isDirectoryFlag;
 		}
 
 		warning("POSIXFilesystemNode: %s() was a success, but stat indicates there is no such %s",
-			isDir ? "mkdir" : "creat", isDir ? "directory" : "file");
+			isDirectoryFlag ? "mkdir" : "creat", isDirectoryFlag ? "directory" : "file");
 		return false;
 	}
 

@@ -30,21 +30,24 @@ namespace Titanic {
 
 CFilesManager::CFilesManager(TitanicEngine *vm) : _vm(vm), _gameManager(nullptr),
 		_assetsPath("Assets"), _drive(-1) {
-	loadResourceIndex();
 }
 
 CFilesManager::~CFilesManager() {
 	_datFile.close();
 }
 
-void CFilesManager::loadResourceIndex() {
-	if (!_datFile.open("titanic.dat"))
-		error("Could not find titanic.dat data file");
+bool CFilesManager::loadResourceIndex() {
+	if (!_datFile.open("titanic.dat")) {
+		g_vm->GUIError("Could not find titanic.dat data file");
+		return false;
+	}
 
 	uint headerId = _datFile.readUint32BE();
 	uint version = _datFile.readUint16LE();
-	if (headerId != MKTAG('S', 'V', 'T', 'N') || version < 1)
-		error("Invalid data file");
+	if (headerId != MKTAG('S', 'V', 'T', 'N') || version < 1) {
+		g_vm->GUIError("titanic.dat has invalid contents");
+		return false;
+	}
 
 	// Read in entries
 	uint offset, size;
@@ -62,6 +65,8 @@ void CFilesManager::loadResourceIndex() {
 
 		_resources[resName] = ResourceEntry(offset, size);
 	}
+
+	return true;
 }
 
 bool CFilesManager::fileExists(const CString &name) {
@@ -92,10 +97,10 @@ bool CFilesManager::scanForFile(const CString &name) {
 	if (fileExists(fname))
 		return true;
 
-	// Couldn't find file. Start by calling the game manager's viewChange
+	// Couldn't find file. Start by calling the game manager's roomChange
 	// method, which handles all active scene objects freeing their resources
 	if (_gameManager)
-		_gameManager->viewChange();
+		_gameManager->roomChange();
 
 	return false;
 }
@@ -106,14 +111,14 @@ void CFilesManager::loadDrive() {
 }
 
 void CFilesManager::insertCD(CScreenManager *screenManager) {
-	// We not support running game directly from the original CDs,
+	// We don't support running the game directly from the original CDs,
 	// so this method can remain stubbed
 }
 
 void CFilesManager::resetView() {
 	if (_gameManager) {
 		_gameManager->_gameState.setMode(GSMODE_INTERACTIVE);
-		_gameManager->initBounds();
+		_gameManager->markAllDirty();
 	}
 }
 

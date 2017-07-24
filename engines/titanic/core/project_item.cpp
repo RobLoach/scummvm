@@ -102,7 +102,7 @@ void CProjectItem::load(SimpleFile *file) {
 	case 1:
 		file->readBuffer();
 		_nextRoomNumber = file->readNumber();
-		// Deliberate fall-through
+		// Intentional fall-through
 
 	case 0:
 		// Load the list of files
@@ -116,16 +116,16 @@ void CProjectItem::load(SimpleFile *file) {
 	case 6:
 		file->readBuffer();
 		_nextObjectNumber = file->readNumber();
-		// Deliberate fall-through
+		// Intentional fall-through
 
 	case 5:
 		file->readBuffer();
 		_nextMessageNumber = file->readNumber();
-		// Deliberate fall-through
+		// Intentional fall-through
 
 	case 4:
 		file->readBuffer();
-		// Deliberate fall-through
+		// Intentional fall-through
 
 	case 2:
 	case 3:
@@ -158,8 +158,8 @@ void CProjectItem::loadGame(int slotId) {
 	CompressedFile file;
 
 	// Clear any existing project contents and call preload code
-	clear();
 	preLoad();
+	clear();
 
 	// Open either an existing savegame slot or the new game template
 	if (slotId >= 0) {
@@ -177,6 +177,7 @@ void CProjectItem::loadGame(int slotId) {
 	TitanicSavegameHeader header;
 	readSavegameHeader(&file, header);
 	delete header._thumbnail;
+	g_vm->_events->setTotalPlayTicks(header._totalFrames);
 
 	// Load the contents in
 	CProjectItem *newProject = loadData(&file);
@@ -309,6 +310,10 @@ void CProjectItem::saveData(SimpleFile *file, CTreeItem *item) const {
 void CProjectItem::preLoad() {
 	if (_gameManager)
 		_gameManager->preLoad();
+
+	CScreenManager *scrManager = CScreenManager::_currentScreenManagerPtr;
+	if (scrManager)
+		scrManager->preLoad();
 }
 
 void CProjectItem::postLoad() {
@@ -372,15 +377,20 @@ CTreeItem *CProjectItem::findChildInstance(ClassDef *classDef) const {
 }
 
 CRoomItem *CProjectItem::findNextRoom(CRoomItem *priorRoom) const {
-	return dynamic_cast<CRoomItem *>(findSiblingInstanceOf(CRoomItem::_type, priorRoom));
+	return dynamic_cast<CRoomItem *>(findSiblingChildInstanceOf(CRoomItem::_type, priorRoom));
 }
 
-CTreeItem *CProjectItem::findSiblingInstanceOf(ClassDef *classDef, CTreeItem *startItem) const {
-	CTreeItem *treeItem = startItem->getParent()->getNextSibling();
-	if (treeItem == nullptr)
-		return nullptr;
+CTreeItem *CProjectItem::findSiblingChildInstanceOf(ClassDef *classDef, CTreeItem *startItem) const {
+	for (CTreeItem *treeItem = startItem->getParent()->getNextSibling();
+			treeItem; treeItem = treeItem->getNextSibling()) {
+		for (CTreeItem *childItem = treeItem->getFirstChild();
+				childItem; childItem = childItem->getNextSibling()) {
+			if (childItem->isInstanceOf(classDef))
+				return childItem;
+		}
+	}
 
-	return findChildInstance(classDef);
+	return nullptr;
 }
 
 CDontSaveFileItem *CProjectItem::getDontSaveFileItem() const {
@@ -478,6 +488,7 @@ SaveStateList CProjectItem::getSavegameList(const Common::String &target) {
 bool CProjectItem::readSavegameHeader(SimpleFile *file, TitanicSavegameHeader &header) {
 	char saveIdentBuffer[SAVEGAME_STR_SIZE + 1];
 	header._thumbnail = nullptr;
+	header._totalFrames = 0;
 
 	// Validate the header Id
 	file->unsafeRead(saveIdentBuffer, SAVEGAME_STR_SIZE + 1);
@@ -536,7 +547,7 @@ void CProjectItem::writeSavegameHeader(SimpleFile *file, TitanicSavegameHeader &
 	file->writeUint16LE(td.tm_mday);
 	file->writeUint16LE(td.tm_hour);
 	file->writeUint16LE(td.tm_min);
-	file->writeUint32LE(g_vm->_events->getFrameCounter());
+	file->writeUint32LE(g_vm->_events->getTotalPlayTicks());
 }
 
 Graphics::Surface *CProjectItem::createThumbnail() {

@@ -222,13 +222,13 @@ class MovGraphLink : public CObject {
 	MovGraphNode *_graphDst;
 	DWordArray _dwordArray1;
 	DWordArray _dwordArray2;
-	int _flags;
+	uint32 _flags;
 	int _field_38;
 	int _field_3C;
 	double _length;
 	double _angle;
 	MovGraphReact *_movGraphReact;
-	char *_name;
+	Common::String _name;
 
   public:
 	MovGraphLink();
@@ -264,7 +264,7 @@ struct MovGraphItem {
 	StaticANIObject *ani;
 	int field_4;
 	MovArr movarr;
-	Common::Array<MovItem *> *movitems;
+	Common::Array<MovItem *> *mi_movitems;
 	int count;
 	int field_30;
 	int field_34;

@@ -98,6 +98,11 @@ struct SciWorkaroundEntry;	// from workarounds.h
 
 // ---- Kernel signatures -----------------------------------------------------
 
+enum {
+	kScummVMWaitId     = 0xe0,
+	kScummVMSaveLoadId = 0xe1
+};
+
 // internal kernel signature data
 enum {
 	SIG_TYPE_NULL          =  0x01, // may be 0:0       [0]
@@ -138,8 +143,6 @@ struct KernelFunction {
 	const SciWorkaroundEntry *workarounds;
 	KernelSubFunction *subFunctions;
 	uint16 subFunctionCount;
-	bool debugLogging;
-	bool debugBreakpoint;
 };
 
 class Kernel {
@@ -171,18 +174,12 @@ public:
 
 	// Script dissection/dumping functions
 	void dissectScript(int scriptNumber, Vocabulary *vocab);
-	void dumpScriptObject(char *data, int seeker, int objsize);
-	void dumpScriptClass(char *data, int seeker, int objsize);
+	void dumpScriptObject(const SciSpan<const byte> &script, SciSpan<const byte> object);
+	void dumpScriptClass(const SciSpan<const byte> &script, SciSpan<const byte> clazz);
 
 	SelectorCache _selectorCache; /**< Shortcut list for important selectors. */
 	typedef Common::Array<KernelFunction> KernelFunctionArray;
 	KernelFunctionArray _kernelFuncs; /**< Table of kernel functions. */
-
-#ifdef ENABLE_SCI32
-	// id of kString function, for quick usage in kArray
-	// kArray calls kString in case parameters are strings
-	uint16 _kernelFunc_StringId;
-#endif
 
 	/**
 	 * Determines whether a list of registers matches a given signature.
@@ -231,11 +228,6 @@ public:
 	 * name table of the resource (the format changed between version 0 and 1).
 	 */
 	void loadKernelNames(GameFeatures *features);
-
-	/**
-	 * Sets debug flags for a kernel function
-	 */
-	bool debugSetFunction(const char *kernelName, int logging, int breakpoint);
 
 private:
 	/**
@@ -466,11 +458,13 @@ reg_t kPlayVMD(EngineState *s, int argc, reg_t *argv);
 reg_t kPlayVMDOpen(EngineState *s, int argc, reg_t *argv);
 reg_t kPlayVMDInit(EngineState *s, int argc, reg_t *argv);
 reg_t kPlayVMDClose(EngineState *s, int argc, reg_t *argv);
+reg_t kPlayVMDIgnorePalettes(EngineState *s, int argc, reg_t *argv);
 reg_t kPlayVMDGetStatus(EngineState *s, int argc, reg_t *argv);
 reg_t kPlayVMDPlayUntilEvent(EngineState *s, int argc, reg_t *argv);
 reg_t kPlayVMDShowCursor(EngineState *s, int argc, reg_t *argv);
 reg_t kPlayVMDSetBlackoutArea(EngineState *s, int argc, reg_t *argv);
 reg_t kPlayVMDRestrictPalette(EngineState *s, int argc, reg_t *argv);
+reg_t kPlayVMDSetPlane(EngineState *s, int argc, reg_t *argv);
 
 reg_t kShowMovie32(EngineState *s, int argc, reg_t *argv);
 reg_t kShowMovieWin(EngineState *s, int argc, reg_t *argv);
@@ -483,30 +477,47 @@ reg_t kShowMovieWinGetDuration(EngineState *s, int argc, reg_t *argv);
 reg_t kShowMovieWinPlayUntilEvent(EngineState *s, int argc, reg_t *argv);
 reg_t kShowMovieWinInitDouble(EngineState *s, int argc, reg_t *argv);
 
-reg_t kIsHiRes(EngineState *s, int argc, reg_t *argv);
-reg_t kArray(EngineState *s, int argc, reg_t *argv);
-reg_t kListAt(EngineState *s, int argc, reg_t *argv);
-reg_t kString(EngineState *s, int argc, reg_t *argv);
+reg_t kSave(EngineState *s, int argc, reg_t *argv);
+reg_t kSaveGame32(EngineState *s, int argc, reg_t *argv);
+reg_t kRestoreGame32(EngineState *s, int argc, reg_t *argv);
+reg_t kGetSaveFiles32(EngineState *s, int argc, reg_t *argv);
+reg_t kCheckSaveGame32(EngineState *s, int argc, reg_t *argv);
+reg_t kMakeSaveCatName(EngineState *s, int argc, reg_t *argv);
+reg_t kMakeSaveFileName(EngineState *s, int argc, reg_t *argv);
+reg_t kScummVMSaveLoad(EngineState *s, int argc, reg_t *argv);
 
+reg_t kSetHotRectangles(EngineState *s, int argc, reg_t *argv);
+reg_t kIsHiRes(EngineState *s, int argc, reg_t *argv);
+reg_t kListAt(EngineState *s, int argc, reg_t *argv);
+
+reg_t kArray(EngineState *s, int argc, reg_t *argv);
+reg_t kArrayNew(EngineState *s, int argc, reg_t *argv);
+reg_t kArrayGetSize(EngineState *s, int argc, reg_t *argv);
+reg_t kArrayGetElement(EngineState *s, int argc, reg_t *argv);
+reg_t kArraySetElements(EngineState *s, int argc, reg_t *argv);
+reg_t kArrayFree(EngineState *s, int argc, reg_t *argv);
+reg_t kArrayFill(EngineState *s, int argc, reg_t *argv);
+reg_t kArrayCopy(EngineState *s, int argc, reg_t *argv);
+reg_t kArrayCompare(EngineState *s, int argc, reg_t *argv);
+reg_t kArrayDuplicate(EngineState *s, int argc, reg_t *argv);
+reg_t kArrayGetData(EngineState *s, int argc, reg_t *argv);
+reg_t kArrayByteCopy(EngineState *s, int argc, reg_t *argv);
+
+reg_t kString(EngineState *s, int argc, reg_t *argv);
 reg_t kStringNew(EngineState *s, int argc, reg_t *argv);
-reg_t kStringSize(EngineState *s, int argc, reg_t *argv);
-reg_t kStringAt(EngineState *s, int argc, reg_t *argv);
-reg_t kStringPutAt(EngineState *s, int argc, reg_t *argv);
+reg_t kStringGetChar(EngineState *s, int argc, reg_t *argv);
 reg_t kStringFree(EngineState *s, int argc, reg_t *argv);
-reg_t kStringFill(EngineState *s, int argc, reg_t *argv);
-reg_t kStringCopy(EngineState *s, int argc, reg_t *argv);
 reg_t kStringCompare(EngineState *s, int argc, reg_t *argv);
-reg_t kStringDup(EngineState *s, int argc, reg_t *argv);
 reg_t kStringGetData(EngineState *s, int argc, reg_t *argv);
-reg_t kStringLen(EngineState *s, int argc, reg_t *argv);
-reg_t kStringPrintf(EngineState *s, int argc, reg_t *argv);
-reg_t kStringPrintfBuf(EngineState *s, int argc, reg_t *argv);
-reg_t kStringAtoi(EngineState *s, int argc, reg_t *argv);
+reg_t kStringLength(EngineState *s, int argc, reg_t *argv);
+reg_t kStringFormat(EngineState *s, int argc, reg_t *argv);
+reg_t kStringFormatAt(EngineState *s, int argc, reg_t *argv);
+reg_t kStringToInteger(EngineState *s, int argc, reg_t *argv);
 reg_t kStringTrim(EngineState *s, int argc, reg_t *argv);
-reg_t kStringUpper(EngineState *s, int argc, reg_t *argv);
-reg_t kStringLower(EngineState *s, int argc, reg_t *argv);
-reg_t kStringTrn(EngineState *s, int argc, reg_t *argv);
-reg_t kStringTrnExclude(EngineState *s, int argc, reg_t *argv);
+reg_t kStringToUpperCase(EngineState *s, int argc, reg_t *argv);
+reg_t kStringToLowerCase(EngineState *s, int argc, reg_t *argv);
+reg_t kStringReplaceSubstring(EngineState *s, int argc, reg_t *argv);
+reg_t kStringReplaceSubstringEx(EngineState *s, int argc, reg_t *argv);
 
 reg_t kScrollWindowCreate(EngineState *s, int argc, reg_t *argv);
 reg_t kScrollWindowAdd(EngineState *s, int argc, reg_t *argv);
@@ -547,7 +558,7 @@ reg_t kBitmapDrawText(EngineState *s, int argc, reg_t *argv);
 reg_t kBitmapDrawColor(EngineState *s, int argc, reg_t *argv);
 reg_t kBitmapDrawBitmap(EngineState *s, int argc, reg_t *argv);
 reg_t kBitmapInvert(EngineState *s, int argc, reg_t *argv);
-reg_t kBitmapSetDisplace(EngineState *s, int argc, reg_t *argv);
+reg_t kBitmapSetOrigin(EngineState *s, int argc, reg_t *argv);
 reg_t kBitmapCreateFromView(EngineState *s, int argc, reg_t *argv);
 reg_t kBitmapCopyPixels(EngineState *s, int argc, reg_t *argv);
 reg_t kBitmapClone(EngineState *s, int argc, reg_t *argv);
@@ -574,10 +585,9 @@ reg_t kListIndexOf(EngineState *s, int argc, reg_t *argv);
 reg_t kListEachElementDo(EngineState *s, int argc, reg_t *argv);
 reg_t kListFirstTrue(EngineState *s, int argc, reg_t *argv);
 reg_t kListAllTrue(EngineState *s, int argc, reg_t *argv);
+reg_t kListSort(EngineState *s, int argc, reg_t *argv);
 
 reg_t kEditText(EngineState *s, int argc, reg_t *argv);
-reg_t kMakeSaveCatName(EngineState *s, int argc, reg_t *argv);
-reg_t kMakeSaveFileName(EngineState *s, int argc, reg_t *argv);
 reg_t kSetScroll(EngineState *s, int argc, reg_t *argv);
 
 reg_t kPaletteSetFromResource32(EngineState *s, int argc, reg_t *argv);
@@ -607,8 +617,6 @@ reg_t kMorphOn(EngineState *s, int argc, reg_t *argv);
 reg_t kText(EngineState *s, int argc, reg_t *argv);
 reg_t kTextSize32(EngineState *s, int argc, reg_t *argv);
 reg_t kTextWidth(EngineState *s, int argc, reg_t *argv);
-reg_t kSave(EngineState *s, int argc, reg_t *argv);
-reg_t kAutoSave(EngineState *s, int argc, reg_t *argv);
 reg_t kList(EngineState *s, int argc, reg_t *argv);
 reg_t kCD(EngineState *s, int argc, reg_t *argv);
 reg_t kCheckCD(EngineState *s, int argc, reg_t *argv);
@@ -622,10 +630,16 @@ reg_t kWinHelp(EngineState *s, int argc, reg_t *argv);
 reg_t kMessageBox(EngineState *s, int argc, reg_t *argv);
 reg_t kGetConfig(EngineState *s, int argc, reg_t *argv);
 reg_t kGetSierraProfileInt(EngineState *s, int argc, reg_t *argv);
+reg_t kPrintDebug(EngineState *s, int argc, reg_t *argv);
+
 reg_t kCelInfo(EngineState *s, int argc, reg_t *argv);
+reg_t kCelInfoGetOriginX(EngineState *s, int argc, reg_t *argv);
+reg_t kCelInfoGetOriginY(EngineState *s, int argc, reg_t *argv);
+reg_t kCelInfoGetPixel(EngineState *s, int argc, reg_t *argv);
+
 reg_t kSetLanguage(EngineState *s, int argc, reg_t *argv);
 reg_t kScrollWindow(EngineState *s, int argc, reg_t *argv);
-reg_t kSetFontHeight(EngineState *s, int argc, reg_t *argv);
+reg_t kPointSize(EngineState *s, int argc, reg_t *argv);
 reg_t kSetFontRes(EngineState *s, int argc, reg_t *argv);
 reg_t kFont(EngineState *s, int argc, reg_t *argv);
 reg_t kAddLine(EngineState *s, int argc, reg_t *argv);
@@ -637,6 +651,13 @@ reg_t kDoSoundPhantasmagoriaMac(EngineState *s, int argc, reg_t *argv);
 
 // SCI3 Kernel functions
 reg_t kPlayDuck(EngineState *s, int argc, reg_t *argv);
+reg_t kPlayDuckPlay(EngineState *s, int argc, reg_t *argv);
+reg_t kPlayDuckSetFrameOut(EngineState *s, int argc, reg_t *argv);
+reg_t kPlayDuckOpen(EngineState *s, int argc, reg_t *argv);
+reg_t kPlayDuckClose(EngineState *s, int argc, reg_t *argv);
+reg_t kPlayDuckSetVolume(EngineState *s, int argc, reg_t *argv);
+reg_t kWebConnect(EngineState *s, int argc, reg_t *argv);
+reg_t kWinExec(EngineState *s, int argc, reg_t *argv);
 #endif
 
 reg_t kDoSoundInit(EngineState *s, int argc, reg_t *argv);
@@ -707,7 +728,7 @@ reg_t kFileIOReadByte(EngineState *s, int argc, reg_t *argv);
 reg_t kFileIOWriteByte(EngineState *s, int argc, reg_t *argv);
 reg_t kFileIOReadWord(EngineState *s, int argc, reg_t *argv);
 reg_t kFileIOWriteWord(EngineState *s, int argc, reg_t *argv);
-reg_t kFileIOCreateSaveSlot(EngineState *s, int argc, reg_t *argv);
+reg_t kFileIOGetCWD(EngineState *s, int argc, reg_t *argv);
 reg_t kFileIOIsValidDirectory(EngineState *s, int argc, reg_t *argv);
 #endif
 

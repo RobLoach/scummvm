@@ -76,13 +76,14 @@ enum {
 };
 
 
-AVIDecoder::AVIDecoder(Audio::Mixer::SoundType soundType, SelectTrackFn trackFn) :
-		_frameRateOverride(0), _soundType(soundType), _selectTrackFn(trackFn) {
+
+AVIDecoder::AVIDecoder(Audio::Mixer::SoundType soundType) :
+		_frameRateOverride(0), _soundType(soundType) {
 	initCommon();
 }
 
-AVIDecoder::AVIDecoder(const Common::Rational &frameRateOverride, Audio::Mixer::SoundType soundType,
-		SelectTrackFn trackFn) : _frameRateOverride(frameRateOverride), _soundType(soundType), _selectTrackFn(trackFn) {
+AVIDecoder::AVIDecoder(const Common::Rational &frameRateOverride, Audio::Mixer::SoundType soundType) :
+	_frameRateOverride(frameRateOverride), _soundType(soundType) {
 	initCommon();
 }
 
@@ -94,6 +95,23 @@ AVIDecoder::AVIAudioTrack *AVIDecoder::createAudioTrack(AVIStreamHeader sHeader,
 	return new AVIAudioTrack(sHeader, wvInfo, _soundType);
 }
 
+bool AVIDecoder::seekToFrame(uint frame) {
+	if (!isSeekable())
+		return false;
+
+	// If we didn't find a video track, we can't seek by frame (of course)
+	if (_videoTracks.empty())
+		return false;
+
+	AVIVideoTrack *track = static_cast<AVIVideoTrack *>(_videoTracks.front().track);
+	Audio::Timestamp time = track->getFrameTime(frame);
+
+	if (time < 0)
+		return false;
+
+	return seek(time);
+}
+
 void AVIDecoder::initCommon() {
 	_decodedHeader = false;
 	_foundMovieList = false;
@@ -103,12 +121,21 @@ void AVIDecoder::initCommon() {
 	_videoTrackCounter = _audioTrackCounter = 0;
 	_lastAddedTrack = nullptr;
 	memset(&_header, 0, sizeof(_header));
+	_transparencyTrack.track = nullptr;
 }
 
 bool AVIDecoder::isSeekable() const {
 	// Only videos with an index can seek
 	// Anyone else who wants to seek is crazy.
 	return isVideoLoaded() && !_indexEntries.empty();
+}
+
+const Graphics::Surface *AVIDecoder::decodeNextTransparency() {
+	if (!_transparencyTrack.track)
+		return nullptr;
+
+	AVIVideoTrack *track = static_cast<AVIVideoTrack *>(_transparencyTrack.track);
+	return track->decodeNextFrame();
 }
 
 bool AVIDecoder::parseNextChunk() {
@@ -293,14 +320,8 @@ void AVIDecoder::handleStreamHeader(uint32 size) {
 }
 
 void AVIDecoder::addTrack(Track *track, bool isExternal) {
-	if (!_selectTrackFn ||
-			(dynamic_cast<AVIVideoTrack *>(track) && _selectTrackFn(true, _videoTrackCounter++)) ||
-			(dynamic_cast<AVIAudioTrack *>(track) && _selectTrackFn(false, _audioTrackCounter++))) {
-		VideoDecoder::addTrack(track, isExternal);
-		_lastAddedTrack = track;
-	} else {
-		_lastAddedTrack = nullptr;
-	}
+	VideoDecoder::addTrack(track, isExternal);
+	_lastAddedTrack = track;
 }
 
 void AVIDecoder::readStreamName(uint32 size) {
@@ -368,16 +389,26 @@ bool AVIDecoder::loadStream(Common::SeekableReadStream *stream) {
 		status.index = index;
 		status.chunkSearchOffset = _movieListStart;
 
-		if ((*it)->getTrackType() == Track::kTrackTypeVideo)
-			_videoTracks.push_back(status);
-		else
+		if ((*it)->getTrackType() == Track::kTrackTypeAudio) {
 			_audioTracks.push_back(status);
+		} else if (_videoTracks.empty()) {
+			_videoTracks.push_back(status);
+		} else {
+			// Secondary video track. For now we assume it will always be a
+			// transparency information track
+			status.chunkSearchOffset = getVideoTrackOffset(index);
+			assert(!_transparencyTrack.track);
+			assert(status.chunkSearchOffset != 0);
+
+			// Copy the track status information into the transparency track field
+			_transparencyTrack = status;
+		}
 	}
 
-	if (_videoTracks.size() != 1) {
-		close();
-		return false;
-	}
+	// If there is a transparency track, remove it from the video decoder's track list.
+	// This is to stop it being included in calls like getFrameCount
+	if (_transparencyTrack.track)
+		eraseTrack(_transparencyTrack.track);
 
 	// Check if this is a special Duck Truemotion video
 	checkTruemotion1();
@@ -400,6 +431,9 @@ void AVIDecoder::close() {
 
 	_videoTracks.clear();
 	_audioTracks.clear();
+
+	delete _transparencyTrack.track;
+	_transparencyTrack.track = nullptr;
 }
 
 void AVIDecoder::readNextPacket() {
@@ -407,12 +441,17 @@ void AVIDecoder::readNextPacket() {
 	if (_videoTracks.empty())
 		return;
 
-	// Get the video frame first
-	handleNextPacket(_videoTracks[0]);
+	// Handle the video first
+	for (uint idx = 0; idx < _videoTracks.size(); ++idx)
+		handleNextPacket(_videoTracks[idx]);
+
+	// Handle any transparency track
+	if (_transparencyTrack.track)
+		handleNextPacket(_transparencyTrack);
 
 	// Handle audio tracks next
-	for (uint32 i = 0; i < _audioTracks.size(); i++)
-		handleNextPacket(_audioTracks[i]);
+	for (uint idx = 0; idx < _audioTracks.size(); ++idx)
+		handleNextPacket(_audioTracks[idx]);
 }
 
 void AVIDecoder::handleNextPacket(TrackStatus &status) {
@@ -434,6 +473,8 @@ void AVIDecoder::handleNextPacket(TrackStatus &status) {
 
 	// Seek to where we shall start searching
 	_fileStream->seek(status.chunkSearchOffset);
+	bool isReversed = false;
+	AVIVideoTrack *videoTrack = nullptr;
 
 	for (;;) {
 		// If there's no more to search, bail out
@@ -487,7 +528,8 @@ void AVIDecoder::handleNextPacket(TrackStatus &status) {
 			if (!shouldQueueAudio(status))
 				break;
 		} else {
-			AVIVideoTrack *videoTrack = (AVIVideoTrack *)status.track;
+			videoTrack = (AVIVideoTrack *)status.track;
+			isReversed = videoTrack->isReversed();
 
 			if (getStreamType(nextTag) == kStreamTypePaletteChange) {
 				// Palette Change
@@ -500,8 +542,15 @@ void AVIDecoder::handleNextPacket(TrackStatus &status) {
 		}
 	}
 
-	// Start us off in this position next time
-	status.chunkSearchOffset = _fileStream->pos();
+	if (!isReversed) {
+		// Start us off in this position next time
+		status.chunkSearchOffset = _fileStream->pos();
+	} else {
+		// Seek to the prior frame
+		assert(videoTrack);
+		Audio::Timestamp time = videoTrack->getFrameTime(getCurFrame());
+		seekIntern(time);
+	}
 }
 
 bool AVIDecoder::shouldQueueAudio(TrackStatus& status) {
@@ -524,7 +573,7 @@ bool AVIDecoder::rewind() {
 		return false;
 
 	for (uint32 i = 0; i < _videoTracks.size(); i++)
-		_videoTracks[i].chunkSearchOffset = _movieListStart;
+		_videoTracks[i].chunkSearchOffset = getVideoTrackOffset(_videoTracks[i].index);
 
 	for (uint32 i = 0; i < _audioTracks.size(); i++)
 		_audioTracks[i].chunkSearchOffset = _movieListStart;
@@ -532,7 +581,18 @@ bool AVIDecoder::rewind() {
 	return true;
 }
 
+uint AVIDecoder::getVideoTrackOffset(uint trackIndex, uint frameNumber) {
+	if (trackIndex == _videoTracks.front().index && frameNumber == 0)
+		return _movieListStart;
+
+	OldIndex *entry = _indexEntries.find(trackIndex, frameNumber);
+	assert(entry);
+	return entry->offset;
+}
+
 bool AVIDecoder::seekIntern(const Audio::Timestamp &time) {
+	uint frame;
+
 	// Can't seek beyond the end
 	if (time > getDuration())
 		return false;
@@ -541,19 +601,23 @@ bool AVIDecoder::seekIntern(const Audio::Timestamp &time) {
 	AVIVideoTrack *videoTrack = (AVIVideoTrack *)_videoTracks[0].track;
 	uint32 videoIndex = _videoTracks[0].index;
 
-	// If we seek directly to the end, just mark the tracks as over
 	if (time == getDuration()) {
 		videoTrack->setCurFrame(videoTrack->getFrameCount() - 1);
 
-		for (TrackListIterator it = getTrackListBegin(); it != getTrackListEnd(); it++)
-			if ((*it)->getTrackType() == Track::kTrackTypeAudio)
-				((AVIAudioTrack *)*it)->resetStream();
+		if (!videoTrack->isReversed()) {
+			// Since we're at the end, just mark the tracks as over
+			for (TrackListIterator it = getTrackListBegin(); it != getTrackListEnd(); it++)
+				if ((*it)->getTrackType() == Track::kTrackTypeAudio)
+					((AVIAudioTrack *)*it)->resetStream();
 
-		return true;
+			return true;
+		}
+
+		frame = videoTrack->getFrameCount() - 1;
+	} else {
+		// Get the frame we should be on at this time
+		frame = videoTrack->getFrameAtTime(time);
 	}
-
-	// Get the frame we should be on at this time
-	uint frame = videoTrack->getFrameAtTime(time);
 
 	// Reset any palette, if necessary
 	videoTrack->useInitialPalette();
@@ -666,15 +730,57 @@ bool AVIDecoder::seekIntern(const Audio::Timestamp &time) {
 		videoTrack->decodeFrame(chunk);
 	}
 
+	// Update any transparency track if present
+	if (_transparencyTrack.track)
+		seekTransparencyFrame(frame);
+
 	// Set the video track's frame
-	videoTrack->setCurFrame((int)frame - 1);
+	videoTrack->setCurFrame(videoTrack->isReversed() ? frame : frame - 1);
 
 	// Set the video track's search offset to the right spot
 	_videoTracks[0].chunkSearchOffset = _indexEntries[frameIndex].offset;
 	return true;
 }
 
-byte AVIDecoder::getStreamIndex(uint32 tag) const {
+void AVIDecoder::seekTransparencyFrame(int frame) {
+	TrackStatus &status = _transparencyTrack;
+	AVIVideoTrack *transTrack = static_cast<AVIVideoTrack *>(status.track);
+
+	// Find the index entry for the frame
+	int indexFrame = frame;
+	OldIndex *entry = nullptr;
+	do {
+		entry = _indexEntries.find(status.index, indexFrame);
+	} while (!entry && indexFrame-- > 0);
+	assert(entry);
+
+	// Set it's frame number
+	transTrack->setCurFrame(indexFrame - 1);
+
+	// Read in the frame
+	Common::SeekableReadStream *chunk = nullptr;
+	_fileStream->seek(entry->offset + 8);
+	status.chunkSearchOffset = entry->offset;
+
+	if (entry->size != 0)
+		chunk = _fileStream->readStream(entry->size);
+	transTrack->decodeFrame(chunk);
+
+	if (indexFrame < (int)frame) {
+		while (status.chunkSearchOffset < _movieListEnd && indexFrame++ < (int)frame) {
+			// There was no index entry for the desired frame, so an earlier one was decoded.
+			// We now have to sequentially skip frames until we get to the desired frame
+			_fileStream->readUint32BE();
+			uint32 size = _fileStream->readUint32LE() - 8;
+			_fileStream->skip(size & 1);
+			status.chunkSearchOffset = _fileStream->pos();
+		}
+	}
+
+	transTrack->setCurFrame((int)frame - 1);
+}
+
+byte AVIDecoder::getStreamIndex(uint32 tag) {
 	char string[3];
 	WRITE_BE_UINT16(string, tag >> 16);
 	string[2] = 0;
@@ -768,6 +874,7 @@ AVIDecoder::AVIVideoTrack::AVIVideoTrack(int frameCount, const AVIStreamHeader &
 	_videoCodec = createCodec();
 	_lastFrame = 0;
 	_curFrame = -1;
+	_reversed = false;
 
 	useInitialPalette();
 }
@@ -787,7 +894,12 @@ void AVIDecoder::AVIVideoTrack::decodeFrame(Common::SeekableReadStream *stream) 
 	}
 
 	delete stream;
-	_curFrame++;
+
+	if (!_reversed) {
+		_curFrame++;
+	} else {
+		_curFrame--;
+	}
 }
 
 Graphics::PixelFormat AVIDecoder::AVIVideoTrack::getPixelFormat() const {
@@ -868,6 +980,23 @@ bool AVIDecoder::AVIVideoTrack::hasDirtyPalette() const {
 		return _videoCodec->hasDirtyPalette();
 
 	return _dirtyPalette;
+}
+
+bool AVIDecoder::AVIVideoTrack::setReverse(bool reverse) {
+	if (isRewindable()) {
+		// Track is rewindable, so reversing is allowed
+		_reversed = reverse;
+		return true;
+	}
+
+	return !reverse;
+}
+
+bool AVIDecoder::AVIVideoTrack::endOfTrack() const {
+	if (_reversed)
+		return _curFrame < 0;
+
+	return _curFrame >= (getFrameCount() - 1);
 }
 
 bool AVIDecoder::AVIVideoTrack::canDither() const {
@@ -973,6 +1102,18 @@ void AVIDecoder::AVIAudioTrack::createAudioStream() {
 }
 
 AVIDecoder::TrackStatus::TrackStatus() : track(0), chunkSearchOffset(0) {
+}
+
+AVIDecoder::OldIndex *AVIDecoder::IndexEntries::find(uint index, uint frameNumber) {
+	for (uint idx = 0, frameCtr = 0; idx < size(); ++idx) {
+		if ((*this)[idx].id != ID_REC &&
+				AVIDecoder::getStreamIndex((*this)[idx].id) == index) {
+			if (frameCtr++ == frameNumber)
+				return &(*this)[idx];
+		}
+	}
+
+	return nullptr;
 }
 
 } // End of namespace Video

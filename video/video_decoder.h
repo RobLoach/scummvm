@@ -184,7 +184,7 @@ public:
 	 * This only works when one video track is present, and that track
 	 * supports getFrameTime(). This calls seek() internally.
 	 */
-	bool seekToFrame(uint frame);
+	virtual bool seekToFrame(uint frame);
 
 	/**
 	 * Pause or resume the video. This should stop/resume any audio playback
@@ -884,6 +884,11 @@ protected:
 	 * Get the end iterator of the tracks
 	 */
 	TrackListIterator getTrackListEnd() { return _internalTracks.end(); }
+
+	/**
+	 * Removes a specified track
+	 */
+	void eraseTrack(Track *track);
 
 	/**
 	 * The internal seek function that does the actual seeking.

@@ -239,12 +239,24 @@ private:
 	SegManager *_segMan;
 
 	/**
-	 * Throttles transition playback to prevent
-	 * transitions from being instant on fast
-	 * computers.
+	 * Throttles transition playback to prevent transitions from being
+	 * instantaneous on modern computers.
+	 *
+	 * kSetShowStyle transitions are throttled at 10ms intervals, under the
+	 * assumption that the default fade transition of 101 divisions was designed
+	 * to finish in one second. Empirically, this seems to roughly match the
+	 * speed of DOSBox, and feels reasonable.
+	 *
+	 * Transitions using kSetScroll (used in the LSL6hires intro) need to be
+	 * slower, so they get throttled at 33ms instead of 10ms. This value was
+	 * chosen by gut feel, as these scrolling transitions are instantaneous in
+	 * DOSBox.
 	 */
-	void throttle();
-	int8 _throttleState;
+	void throttle(const uint32 ms = 10);
+
+	void clearShowRects();
+	void addShowRect(const Common::Rect &rect);
+	void sendShowRects();
 
 #pragma mark -
 #pragma mark Show styles
@@ -319,6 +331,18 @@ private:
 	ShowStyleList::iterator deleteShowStyle(const ShowStyleList::iterator &showStyle);
 
 	/**
+	 * Initializes the given PlaneShowStyle for a
+	 * horizontal wipe effect for SCI2 to 2.1early.
+	 */
+	void configure21EarlyHorizontalWipe(PlaneShowStyle &showStyle, const int16 priority);
+
+	/**
+	 * Initializes the given PlaneShowStyle for a
+	 * horizontal shutter effect for SCI2 to 2.1early.
+	 */
+	void configure21EarlyHorizontalShutter(PlaneShowStyle &showStyle, const int16 priority);
+
+	/**
 	 * Initializes the given PlaneShowStyle for an
 	 * iris effect for SCI2 to 2.1early.
 	 */
@@ -346,13 +370,13 @@ private:
 	 * Performs a transition that renders into a room
 	 * with a horizontal shutter effect.
 	 */
-	void processHShutterOut(PlaneShowStyle &showStyle);
+	bool processHShutterOut(PlaneShowStyle &showStyle);
 
 	/**
 	 * Performs a transition that renders to black
 	 * with a horizontal shutter effect.
 	 */
-	void processHShutterIn(PlaneShowStyle &showStyle);
+	void processHShutterIn(const PlaneShowStyle &showStyle);
 
 	/**
 	 * Performs a transition that renders into a room
@@ -424,7 +448,7 @@ private:
 	 * SCI2.1mid and later implementation of
 	 * pixel dissolve.
 	 */
-	bool processPixelDissolve21Mid(PlaneShowStyle &showStyle);
+	bool processPixelDissolve21Mid(const PlaneShowStyle &showStyle);
 
 	/**
 	 * Performs a transition that fades to black

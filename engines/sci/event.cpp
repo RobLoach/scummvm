@@ -109,8 +109,12 @@ static const MouseEventConversion mouseEventMappings[] = {
 	{   Common::EVENT_MBUTTONUP, SCI_EVENT_MOUSE_RELEASE }
 };
 
-EventManager::EventManager(bool fontIsExtended) : _fontIsExtended(fontIsExtended) {
-}
+EventManager::EventManager(bool fontIsExtended) :
+	_fontIsExtended(fontIsExtended)
+#ifdef ENABLE_SCI32
+	, _hotRectanglesActive(false)
+#endif
+	{}
 
 EventManager::~EventManager() {
 }
@@ -138,8 +142,8 @@ static int altify(int ch) {
 
 SciEvent EventManager::getScummVMEvent() {
 #ifdef ENABLE_SCI32
-	SciEvent input = { SCI_EVENT_NONE, 0, 0, Common::Point(), Common::Point() };
-	SciEvent noEvent = { SCI_EVENT_NONE, 0, 0, Common::Point(), Common::Point() };
+	SciEvent input = { SCI_EVENT_NONE, 0, 0, Common::Point(), Common::Point(), -1 };
+	SciEvent noEvent = { SCI_EVENT_NONE, 0, 0, Common::Point(), Common::Point(), -1 };
 #else
 	SciEvent input = { SCI_EVENT_NONE, 0, 0, Common::Point() };
 	SciEvent noEvent = { SCI_EVENT_NONE, 0, 0, Common::Point() };
@@ -169,17 +173,18 @@ SciEvent EventManager::getScummVMEvent() {
 	if (getSciVersion() >= SCI_VERSION_2) {
 		const Buffer &screen = g_sci->_gfxFrameout->getCurrentBuffer();
 
-		if (ev.type == Common::EVENT_MOUSEMOVE) {
-			// This will clamp `mousePos` according to the restricted zone,
-			// so any cursor or screen item associated with the mouse position
-			// does not bounce when it hits the edge (or ignore the edge)
-			g_sci->_gfxCursor32->deviceMoved(mousePos);
-		}
+		// This will clamp `mousePos` according to the restricted zone,
+		// so any cursor or screen item associated with the mouse position
+		// does not bounce when it hits the edge (or ignore the edge)
+		g_sci->_gfxCursor32->deviceMoved(mousePos);
 
 		Common::Point mousePosSci = mousePos;
 		mulru(mousePosSci, Ratio(screen.scriptWidth, screen.screenWidth), Ratio(screen.scriptHeight, screen.screenHeight));
 		noEvent.mousePosSci = input.mousePosSci = mousePosSci;
 
+		if (_hotRectanglesActive) {
+			checkHotRectangles(mousePosSci);
+		}
 	} else {
 #endif
 		g_sci->_gfxScreen->adjustBackUpscaledCoordinates(mousePos.y, mousePos.x);
@@ -198,7 +203,7 @@ SciEvent EventManager::getScummVMEvent() {
 
 		return noEvent;
 	}
-	if (ev.type == Common::EVENT_QUIT) {
+	if (ev.type == Common::EVENT_QUIT || ev.type == Common::EVENT_RTL) {
 		input.type = SCI_EVENT_QUIT;
 		return input;
 	}
@@ -330,13 +335,13 @@ SciEvent EventManager::getScummVMEvent() {
 	// Scancodify if appropriate
 	if (scummVMKeyFlags & Common::KBD_ALT)
 		input.character = altify(input.character);
-	if (getSciVersion() <= SCI_VERSION_1_MIDDLE && (scummVMKeyFlags & Common::KBD_CTRL) && input.character > 0 && input.character < 27)
-		input.character += 96; // 0x01 -> 'a'
-#ifdef ENABLE_SCI32
-	if (getSciVersion() >= SCI_VERSION_2 && (scummVMKeyFlags & Common::KBD_CTRL) && input.character == 'c') {
-		input.character = SCI_KEY_ETX;
+
+	// In SSCI, Ctrl+<key> generates ASCII control characters, but the backends
+	// usually give us a latin character + Ctrl flag, so convert this combo back
+	// into what is expected by game scripts
+	if ((scummVMKeyFlags & Common::KBD_NON_STICKY) == Common::KBD_CTRL && input.character >= 'a' && input.character <= 'z') {
+		input.character -= 96;
 	}
-#endif
 
 	// If no actual key was pressed (e.g. if only a modifier key was pressed),
 	// ignore the event
@@ -365,12 +370,14 @@ void EventManager::updateScreen() {
 
 SciEvent EventManager::getSciEvent(uint32 mask) {
 #ifdef ENABLE_SCI32
-	SciEvent event = { SCI_EVENT_NONE, 0, 0, Common::Point(), Common::Point() };
+	SciEvent event = { SCI_EVENT_NONE, 0, 0, Common::Point(), Common::Point(), -1 };
 #else
 	SciEvent event = { SCI_EVENT_NONE, 0, 0, Common::Point() };
 #endif
 
-	EventManager::updateScreen();
+	if (getSciVersion() < SCI_VERSION_2) {
+		updateScreen();
+	}
 
 	// Get all queued events from graphics driver
 	do {
@@ -401,24 +408,50 @@ SciEvent EventManager::getSciEvent(uint32 mask) {
 	return event;
 }
 
-void SciEngine::sleep(uint32 msecs) {
-	uint32 time;
-	const uint32 wakeUpTime = g_system->getMillis() + msecs;
-
-	while (true) {
-		// let backend process events and update the screen
-		_eventMan->getSciEvent(SCI_EVENT_PEEK);
-		time = g_system->getMillis();
-		if (time + 10 < wakeUpTime) {
-			g_system->delayMillis(10);
-		} else {
-			if (time < wakeUpTime)
-				g_system->delayMillis(wakeUpTime - time);
-			break;
-		}
-
-	}
+void EventManager::flushEvents() {
+	Common::EventManager *em = g_system->getEventManager();
+	Common::Event event;
+	while (em->pollEvent(event));
+	_events.clear();
 }
 
+#ifdef ENABLE_SCI32
+void EventManager::setHotRectanglesActive(const bool active) {
+	_hotRectanglesActive = active;
+}
+
+void EventManager::setHotRectangles(const Common::Array<Common::Rect> &rects) {
+	_hotRects = rects;
+	_activeRectIndex = -1;
+}
+
+void EventManager::checkHotRectangles(const Common::Point &mousePosition) {
+	int lastActiveRectIndex = _activeRectIndex;
+	_activeRectIndex = -1;
+
+	for (int16 i = 0; i < (int16)_hotRects.size(); ++i) {
+		if (_hotRects[i].contains(mousePosition)) {
+			_activeRectIndex = i;
+			if (i != lastActiveRectIndex) {
+				SciEvent hotRectEvent;
+				hotRectEvent.type = SCI_EVENT_HOT_RECTANGLE;
+				hotRectEvent.hotRectangleIndex = i;
+				_events.push_front(hotRectEvent);
+				break;
+			}
+
+			lastActiveRectIndex = _activeRectIndex;
+		}
+	}
+
+	if (lastActiveRectIndex != _activeRectIndex && lastActiveRectIndex != -1) {
+		_activeRectIndex = -1;
+		SciEvent hotRectEvent;
+		hotRectEvent.type = SCI_EVENT_HOT_RECTANGLE;
+		hotRectEvent.hotRectangleIndex = -1;
+		_events.push_front(hotRectEvent);
+	}
+}
+#endif
 
 } // End of namespace Sci

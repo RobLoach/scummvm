@@ -30,13 +30,9 @@
 namespace Sci {
 
 enum ScaleSignals32 {
-	kScaleSignalNone                    = 0,
-	// TODO: rename to 'manual'
-	kScaleSignalDoScaling32				= 1, // enables scaling when drawing that cel (involves scaleX and scaleY)
-	kScaleSignalUseVanishingPoint       = 2,
-	// TODO: Is this actually a thing? I have not seen it and
-	// the original engine masks &3 where it uses scale signals.
-	kScaleSignalDisableGlobalScaling32	= 4
+	kScaleSignalNone           = 0,
+	kScaleSignalManual         = 1,
+	kScaleSignalVanishingPoint = 2
 };
 
 struct ScaleInfo {
@@ -64,6 +60,13 @@ private:
 	 * interpreter.
 	 */
 	static uint16 _nextObjectId;
+
+	/**
+	 * A serial used to identify the creation order of
+	 * screen items, to ensure a stable sort order for
+	 * screen items with identical priorities and z-indexes.
+	 */
+	static uint32 _nextCreationId;
 
 public:
 	/**
@@ -123,6 +126,13 @@ private:
 	void setFromObject(SegManager *segMan, const reg_t object, const bool updateCel, const bool updateBitmap);
 
 public:
+	/**
+	 * The creation order number, which ensures a stable
+	 * sort when screen items with identical priorities and
+	 * z-indexes are added to the screen item list.
+	 */
+	uint32 _creationId;
+
 	/**
 	 * A descriptor for the cel object represented by the
 	 * screen item.
@@ -246,7 +256,28 @@ public:
 			}
 
 			if (_position.y + _z == other._position.y + other._z) {
-				return _object < other._object;
+				// SSCI's last resort comparison here is to compare the _object
+				// IDs, but this is wrong and randomly breaks (at least):
+				//
+				// (1) the death dialog at the end of Phant1, where the ID of
+				//     the text is often higher than the ID of the border;
+				// (2) text-based buttons and dialogues in Hoyle5, where the ID
+				//     of the text is often lower than the ID of the
+				//     button/dialogue background.
+				//
+				// This occurs because object IDs (in both ScummVM and SSCI) are
+				// reused, so objects created later may receive a lower ID,
+				// which makes them sort lower when the programmer intended them
+				// to sort higher.
+				//
+				// To fix this problem, we give each ScreenItem a monotonically
+				// increasing insertion ID at construction time, and compare
+				// these insertion IDs instead. They are more stable and cause
+				// objects with identical priority and z-index to be rendered in
+				// the order that they were created.
+				//
+				// This also applies to ScreenItem::hasPriorityAbove.
+				return _creationId < other._creationId;
 			}
 		}
 
@@ -264,8 +295,24 @@ public:
 			}
 
 			if (_position.y + _z == other._position.y + other._z) {
-				return _object > other._object;
+				// This is different than SSCI; see ScreenItem::operator< for an
+				// explanation
+				return _creationId > other._creationId;
 			}
+		}
+
+		return false;
+	}
+
+	inline bool hasPriorityAbove(const ScreenItem &other) const {
+		if (_priority > other._priority) {
+			return true;
+		}
+
+		if (_priority == other._priority) {
+			// This is different than SSCI; see ScreenItem::operator< for an
+			// explanation
+			return _creationId > other._creationId;
 		}
 
 		return false;

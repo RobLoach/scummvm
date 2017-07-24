@@ -52,6 +52,7 @@ bool CLongStick::UseWithOtherMsg(CUseWithOtherMsg *msg) {
 	} else if (msg->_other->isEquals("Bomb")) {
 		CActMsg actMsg("Hit");
 		actMsg.execute("Bomb");
+		petAddToInventory();
 	} else {
 		return CCarry::UseWithOtherMsg(msg);
 	}
@@ -60,7 +61,7 @@ bool CLongStick::UseWithOtherMsg(CUseWithOtherMsg *msg) {
 }
 
 bool CLongStick::PuzzleSolvedMsg(CPuzzleSolvedMsg *msg) {
-	_fieldE0 = 1;
+	_canTake = true;
 	return true;
 }
 

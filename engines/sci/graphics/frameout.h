@@ -23,6 +23,8 @@
 #ifndef SCI_GRAPHICS_FRAMEOUT_H
 #define SCI_GRAPHICS_FRAMEOUT_H
 
+#include "engines/util.h"                // for initGraphics
+#include "sci/event.h"
 #include "sci/graphics/plane32.h"
 #include "sci/graphics/screen_item32.h"
 
@@ -39,10 +41,17 @@ struct PlaneShowStyle;
  * Roughly equivalent to GraphicsMgr in the actual SCI engine.
  */
 class GfxFrameout {
+	friend class GfxTransitions32;
 private:
 	GfxCursor32 *_cursor;
 	GfxPalette32 *_palette;
 	SegManager *_segMan;
+
+	/**
+	 * Determines whether the current game should be rendered in
+	 * high resolution.
+	 */
+	bool gameIsHiRes() const;
 
 public:
 	GfxFrameout(SegManager *segMan, GfxPalette32 *palette, GfxTransitions32 *transitions, GfxCursor32 *cursor);
@@ -51,35 +60,13 @@ public:
 	bool _isHiRes;
 
 	void clear();
-	void syncWithScripts(bool addElements); // this is what Game::restore does, only needed when our ScummVM dialogs are patched in
 	void run();
-
-#pragma mark -
-#pragma mark Benchmarking
-private:
-	/**
-	 * Optimization to avoid the more expensive object name
-	 * comparision on every call to kAddScreenItem and
-	 * kRemoveScreenItem.
-	 */
-	bool _benchmarkingFinished;
-
-	/**
-	 * Whether or not calls to kFrameOut should be framerate
-	 * limited to 60fps.
-	 */
-	bool _throttleFrameOut;
-
-	/**
-	 * Determines whether or not a screen item is the "Fred"
-	 * object.
-	 */
-	bool checkForFred(const reg_t object);
 
 #pragma mark -
 #pragma mark Screen items
 private:
 	void remapMarkRedraw();
+	bool getNowSeenRect(const reg_t screenItemObject, Common::Rect &result) const;
 
 public:
 	/**
@@ -111,6 +98,7 @@ public:
 	void kernelUpdateScreenItem(const reg_t object);
 	void kernelDeleteScreenItem(const reg_t object);
 	bool kernelSetNowSeen(const reg_t screenItemObject) const;
+	int16 kernelObjectIntersect(const reg_t object1, const reg_t object2) const;
 
 #pragma mark -
 #pragma mark Planes
@@ -170,6 +158,11 @@ public:
 #pragma mark -
 #pragma mark Rendering
 private:
+	/**
+	 * The last time the hardware screen was updated.
+	 */
+	uint32 _lastScreenUpdateTick;
+
 	GfxTransitions32 *_transitions;
 
 	/**
@@ -270,8 +263,8 @@ private:
 	void mergeToShowList(const Common::Rect &drawRect, RectList &showList, const int overdrawThreshold);
 
 	/**
-	 * Writes the internal frame buffer out to hardware and
-	 * clears the show list.
+	 * Sends all dirty rects from the internal frame buffer to the backend,
+	 * then updates the hardware screen.
 	 */
 	void showBits();
 
@@ -301,11 +294,28 @@ private:
 
 public:
 	/**
-	 * Whether or not the data in the current buffer is what
-	 * is visible to the user. During rendering updates,
-	 * this flag is set to false.
+	 * Updates the hardware screen, no more than once per tick.
+	 *
+	 * @param delta An additional number of ticks that should elapse
+	 * since the last time the screen was updated before it gets updated now.
+	 * This is used for updating the screen within run_vm, where we normally
+	 * expect that a call to kFrameOut will occur later during the current
+	 * frame, but if it does not, then update the screen on the second frame
+	 * anyway since the game is doing something bad.
 	 */
-	bool _frameNowVisible;
+	void updateScreen(const int delta = 0);
+
+	/**
+	 * Resets the pixel format of the hardware surface to the given format.
+	 */
+	void setPixelFormat(const Graphics::PixelFormat &format) const {
+		initGraphics(_currentBuffer.screenWidth, _currentBuffer.screenHeight, _isHiRes, &format);
+	}
+
+	/**
+	 * Whether or not to throttle kFrameOut calls.
+	 */
+	bool _throttleKernelFrameOut;
 
 	/**
 	 * Whether palMorphFrameOut should be used instead of
@@ -340,6 +350,19 @@ public:
 	void palMorphFrameOut(const int8 *styleRanges, PlaneShowStyle *showStyle);
 
 	/**
+	 * Draws the given rect from the internal screen buffer to hardware without
+	 * processing any other graphics updates except for cursor changes.
+	 */
+	void directFrameOut(const Common::Rect &showRect);
+
+#ifdef USE_RGB_COLOR
+	/**
+	 * Sends the entire internal screen buffer and palette to hardware.
+	 */
+	void resetHardware();
+#endif
+
+	/**
 	 * Modifies the raw pixel data for the next frame with
 	 * new palette indexes based on matched style ranges.
 	 */
@@ -358,12 +381,6 @@ public:
 	};
 
 	/**
-	 * Draws a portion of the current screen buffer to
-	 * hardware. Used to display show styles in SCI2.1mid+.
-	 */
-	void showRect(const Common::Rect &rect);
-
-	/**
 	 * Shakes the screen.
 	 */
 	void shakeScreen(const int16 numShakes, const ShakeDirection direction);
@@ -371,6 +388,17 @@ public:
 #pragma mark -
 #pragma mark Mouse cursor
 private:
+	void updateMousePositionForRendering() const {
+		// In SSCI, mouse events were received via hardware interrupt, so the
+		// mouse cursor would always get updated immediately when the user moved
+		// the mouse. ScummVM must poll for mouse events from the backend
+		// instead, so we poll just before rendering so that the latest mouse
+		// position is rendered instead of whatever position it was at the last
+		// time kGetEvent was called. Without this, the mouse appears stuck
+		// during loops that do not make calls to kGetEvent, like transitions.
+		g_sci->getEventManager()->getSciEvent(SCI_EVENT_PEEK);
+	}
+
 	/**
 	 * Determines whether or not the point given by
 	 * `position` is inside of the given screen item.
