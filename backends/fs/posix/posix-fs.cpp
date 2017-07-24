@@ -266,3 +266,5 @@ bool assureDirectoryExists(const Common::String &dir, const char *prefix) {
 }
 
 } // End of namespace Posix
+
+#endif //#if defined(POSIX)
