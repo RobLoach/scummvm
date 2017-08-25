@@ -21,6 +21,7 @@
  */
 
 #include "titanic/npcs/barbot.h"
+#include "titanic/support/files_manager.h"
 #include "titanic/titanic.h"
 
 namespace Titanic {
@@ -406,8 +407,10 @@ bool CBarbot::MovieEndMsg(CMovieEndMsg *msg) {
 	}
 
 	if (msg->_endFrame == _frames[58]._endFrame || msg->_endFrame == _frames[21]._endFrame) {
-		CVisibleMsg visibleMsg(true);
-		visibleMsg.execute("BarShelfVisCentre");
+		if (!_gottenDrunk) {
+			CVisibleMsg visibleMsg(true);
+			visibleMsg.execute("BarShelfVisCentre");
+		}
 	}
 
 	if (msg->_endFrame == _frames[57]._endFrame) {

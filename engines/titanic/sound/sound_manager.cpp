@@ -21,6 +21,7 @@
  */
 
 #include "titanic/sound/sound_manager.h"
+#include "titanic/events.h"
 #include "titanic/titanic.h"
 
 namespace Titanic {
@@ -120,7 +121,7 @@ QSoundManager::~QSoundManager() {
 }
 
 CWaveFile *QSoundManager::loadSound(const CString &name) {
-	CWaveFile *waveFile = new CWaveFile();
+	CWaveFile *waveFile = new CWaveFile(_mixer);
 
 	// Try to load the specified sound
 	if (!waveFile->loadSound(name)) {
@@ -132,7 +133,7 @@ CWaveFile *QSoundManager::loadSound(const CString &name) {
 }
 
 CWaveFile *QSoundManager::loadSpeech(CDialogueFile *dialogueFile, int speechId) {
-	CWaveFile *waveFile = new CWaveFile();
+	CWaveFile *waveFile = new CWaveFile(_mixer);
 
 	// Try to load the specified sound
 	if (!waveFile->loadSpeech(dialogueFile, speechId)) {
@@ -144,7 +145,7 @@ CWaveFile *QSoundManager::loadSpeech(CDialogueFile *dialogueFile, int speechId) 
 }
 
 CWaveFile *QSoundManager::loadMusic(const CString &name) {
-	CWaveFile *waveFile = new CWaveFile();
+	CWaveFile *waveFile = new CWaveFile(_mixer);
 
 	// Try to load the specified sound
 	if (!waveFile->loadMusic(name)) {
@@ -156,7 +157,7 @@ CWaveFile *QSoundManager::loadMusic(const CString &name) {
 }
 
 CWaveFile *QSoundManager::loadMusic(CAudioBuffer *buffer, DisposeAfterUse::Flag disposeAfterUse) {
-	CWaveFile *waveFile = new CWaveFile();
+	CWaveFile *waveFile = new CWaveFile(_mixer);
 
 	// Try to load the specified audio buffer
 	if (!waveFile->loadMusic(buffer, disposeAfterUse)) {
@@ -288,7 +289,7 @@ void QSoundManager::setVolume(int handle, uint volume, uint seconds) {
 			_channelsVolume[slot._channel] = volume;
 			updateVolume(slot._channel, seconds * 1000);
 
-			if (volume) {
+			if (!volume) {
 				uint ticks = g_vm->_events->getTicksCount() + seconds * 1000;
 				if (!slot._ticks || ticks >= slot._ticks)
 					slot._ticks = ticks;

@@ -21,15 +21,13 @@
  */
 
 #include "titanic/star_control/daffine.h"
-#include "titanic/star_control/fmatrix.h"
+#include "titanic/star_control/fmatrix.h" // includes FVector
 #include "titanic/star_control/matrix_transform.h"
 
 namespace Titanic {
 
-DAffine *DAffine::_static;
-
 DAffine::DAffine() :
-	_col1(0.0, 0.0, 0.0), _col2(0.0, 0.0, 0.0), _col3(0.0, 0.0, 0.0) {
+	_col1(0.0, 0.0, 0.0), _col2(0.0, 0.0, 0.0), _col3(0.0, 0.0, 0.0), _col4(0.0, 0.0, 0.0) {
 }
 
 DAffine::DAffine(int mode, const DVector &src) {
@@ -55,8 +53,8 @@ DAffine::DAffine(int mode, const DVector &src) {
 	}
 }
 
-DAffine::DAffine(Axis axis, double amount) {
-	setRotationMatrix(axis, amount);
+DAffine::DAffine(Axis axis, double angleDeg) {
+	setRotationMatrix(axis, angleDeg);
 }
 
 DAffine::DAffine(const FMatrix &src) {
@@ -65,19 +63,27 @@ DAffine::DAffine(const FMatrix &src) {
 	_col3 = src._row3;
 }
 
-void DAffine::init() {
-	_static = nullptr;
+void DAffine::clear() {
+	_col1._x = 0.0;
+	_col1._y = 0.0;
+	_col1._z = 0.0;
+	_col2._x = 0.0;
+	_col2._y = 0.0;
+	_col2._z = 0.0;
+	_col3._x = 0.0;
+	_col3._y = 0.0;
+	_col3._z = 0.0;
+	_col4._x = 0.0;
+	_col4._y = 0.0;
+	_col4._z = 0.0;
 }
 
-void DAffine::deinit() {
-	delete _static;
-	_static = nullptr;
-}
+// Source: https://en.wikipedia.org/wiki/Rotation_matrix
+void DAffine::setRotationMatrix(Axis axis, double angleDeg) {
+	clear();
 
-void DAffine::setRotationMatrix(Axis axis, double amount) {
-	const double FACTOR = 0.0174532925199433;
-	double sinVal = sin(amount * FACTOR);
-	double cosVal = cos(amount * FACTOR);
+	double sinVal = sin(angleDeg * Deg2Rad);
+	double cosVal = cos(angleDeg * Deg2Rad);
 
 	switch (axis) {
 	case X_AXIS:
@@ -90,9 +96,9 @@ void DAffine::setRotationMatrix(Axis axis, double amount) {
 
 	case Y_AXIS:
 		_col1._x = cosVal;
-		_col1._z = sinVal;
+		_col1._z = -sinVal;
 		_col2._y = 1.0;
-		_col3._x = -sinVal;
+		_col3._x = sinVal;
 		_col3._z = cosVal;
 		break;
 
@@ -109,71 +115,34 @@ void DAffine::setRotationMatrix(Axis axis, double amount) {
 	}
 }
 
+//TODO: Check column 4 math
 DAffine DAffine::inverseTransform() const {
-	double val1 = _col1._x * _col3._z * _col2._y;
-	double val2 = 0.0;
-	double val3 = val1;
-
-	if (val1 < 0.0) {
-		val2 = val3;
-		val1 = 0.0;
-	}
-
-	double val4 = _col3._x * _col1._y * _col2._z;
-	if (val4 < 0.0)
-		val2 = val2 + val4;
-	else
-		val1 = val1 + val4;
-
-	double val5 = _col3._y * _col1._z * _col2._x;
-	if (val5 < 0.0)
-		val2 = val2 + val5;
-	else
-		val1 = val1 + val5;
-
-	if (-(_col3._x * _col2._y * _col1._z) < 0.0)
-		val2 = val2 - _col3._x * _col2._y * _col1._z;
-	else
-		val1 = val1 - _col3._x * _col2._y * _col1._z;
-	if (-(_col1._y * _col3._z * _col2._x) < 0.0)
-		val2 = val2 - _col1._y * _col3._z * _col2._x;
-	else
-		val1 = val1 - _col1._y * _col3._z * _col2._x;
-
-	val3 = _col3._y * _col2._z;
-	double val6 = -(_col1._x * val3);
-	if (val6 < 0.0)
-		val2 = val2 + val6;
-	else
-		val1 = val1 + val6;
-
-	double val7 = val2 + val1;
-	assert(!(val7 == 0.0 || fabs(val7 / (val1 - val2)) < 1.0e-10));
-
-	double val8 = _col3._z * _col2._y;
-	double val9 = 1.0 / val7;
-
 	DAffine m;
-	m._col1._x = (val8 - val3) * val9;
-	m._col2._x = -((_col3._z * _col2._x - _col3._x * _col2._z) * val9);
-	m._col3._x = (_col3._y * _col2._x - _col3._x * _col2._y) * val9;
-	m._col1._y = -((_col1._y * _col3._z - _col3._y * _col1._z) * val9);
-	m._col2._y = (_col1._x * _col3._z - _col3._x * _col1._z) * val9;
-	m._col3._y = -((_col1._x * _col3._y - _col3._x * _col1._y) * val9);
-	m._col1._z = (_col1._y * _col2._z - _col2._y * _col1._z) * val9;
-	m._col2._z = -((_col1._x * _col2._z - _col1._z * _col2._x) * val9);
-	m._col3._z = (_col1._x * _col2._y - _col1._y * _col2._x) * val9;
 
-	m._col4._x = -(m._col1._x * _col4._x + _col4._y * m._col2._x
+	// Inverse of rotation matrix is the transpose
+	m._col1._x = _col1._x;
+	m._col2._x = _col1._y;
+	m._col3._x = _col1._z;
+	m._col1._y = _col2._x;
+	m._col2._y = _col2._y;
+	m._col3._y = _col2._z;
+	m._col1._z = _col3._x;
+	m._col2._z = _col3._y;
+	m._col3._z = _col3._z;
+
+	m._col4._x = -(_col4._x * m._col1._x
+		+ _col4._y * m._col2._x
 		+ _col4._z * m._col3._x);
-	m._col4._y = -(_col4._z * m._col3._y + _col4._y * m._col2._y
-		+ _col4._x * m._col1._y);
-	m._col4._z = -(_col4._z * m._col3._z + _col4._x * m._col1._z
-		+ _col4._y * m._col2._z);
-
+	m._col4._y = -(_col4._x * m._col1._y
+		+ _col4._y * m._col2._y
+		+ _col4._z * m._col3._y);
+	m._col4._z = -(_col4._x * m._col1._z
+		+ _col4._y * m._col2._z
+		+ _col4._z * m._col3._z);
 	return m;
 }
 
+//TODO: Check math and provide source
 void DAffine::loadTransform(const CMatrixTransform &src) {
 	double total = src.fn1();
 	double factor = (total <= 0.0) ? 0.0 : 2.0 / total;
@@ -201,6 +170,7 @@ void DAffine::loadTransform(const CMatrixTransform &src) {
 	_col4._z = 0;
 }
 
+//TODO: Check math and provide source
 DAffine DAffine::compose(const DAffine &m) {
 	DAffine dm;
 	dm._col1._x = m._col3._x * _col1._z + m._col2._x * _col1._y

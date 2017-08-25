@@ -20,13 +20,17 @@
  *
  */
 
-#include "common/scummsys.h"
+#include "titanic/events.h"
+#include "titanic/debugger.h"
+#include "titanic/game_manager.h"
+#include "titanic/main_game_window.h"
+#include "titanic/star_control/star_control.h"
+#include "titanic/titanic.h"
 #include "common/events.h"
+#include "common/scummsys.h"
 #include "common/system.h"
 #include "engines/util.h"
-#include "titanic/events.h"
-#include "titanic/titanic.h"
-#include "titanic/main_game_window.h"
+#include "graphics/screen.h"
 
 namespace Titanic {
 
@@ -72,14 +76,14 @@ void Events::pollEvents() {
 			eventTarget()->middleButtonUp(_mousePos);
 			return;
 		case Common::EVENT_RBUTTONDOWN:
-			_specialButtons |= MK_RBUTTON;
+			_specialButtons |= MK_LBUTTON | MK_SHIFT;
 			_mousePos = event.mouse;
-			eventTarget()->rightButtonDown(_mousePos);
+			eventTarget()->leftButtonDown(_mousePos);
 			return;
 		case Common::EVENT_RBUTTONUP:
-			_specialButtons &= ~MK_RBUTTON;
+			_specialButtons &= ~(MK_RBUTTON | MK_SHIFT);
 			_mousePos = event.mouse;
-			eventTarget()->rightButtonUp(_mousePos);
+			eventTarget()->leftButtonUp(_mousePos);
 			return;
 		case Common::EVENT_WHEELUP:
 		case Common::EVENT_WHEELDOWN:
@@ -108,10 +112,22 @@ void Events::pollEventsAndWait() {
 	pollEvents();
 	g_system->delayMillis(10);
 
-	// Regularly update the sound mixer
 	CGameManager *gameManager = g_vm->_window->_gameManager;
-	if (gameManager)
+	if (gameManager) {
+		// Regularly update the sound mixer
 		gameManager->_sound.updateMixer();
+
+		// WORKAROUND: If in the Star Control view, update the camera
+		// frequently, to accomodate that the original had a higher
+		// draw rate than the ScummVM implementation does
+		CViewItem *view = gameManager->getView();
+		if (view->getFullViewName() == "Bridge.Node 4.N") {
+			CStarControl *starControl = dynamic_cast<CStarControl *>(
+				view->findChildInstanceOf(CStarControl::_type));
+			if (starControl && starControl->_visible)
+				starControl->updateCamera();
+		}
+	}
 }
 
 bool Events::checkForNextFrameCounter() {

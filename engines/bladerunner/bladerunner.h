@@ -32,7 +32,10 @@
 #include "engines/engine.h"
 
 #include "graphics/surface.h"
-#include "suspects_database.h"
+
+namespace Common {
+struct Event;
+}
 
 namespace BladeRunner {
 
@@ -49,11 +52,14 @@ class Actor;
 class ADQ;
 class AIScripts;
 class AmbientSounds;
+class AudioMixer;
 class AudioPlayer;
 class AudioSpeech;
 class Chapters;
 class CrimesDatabase;
 class Combat;
+class DialogueMenu;
+class Elevator;
 class Font;
 class GameFlags;
 class GameInfo;
@@ -69,6 +75,8 @@ class Settings;
 class Shape;
 class SliceAnimations;
 class SliceRenderer;
+class Spinner;
+class SuspectsDatabase;
 class TextResource;
 class View;
 class Waypoints;
@@ -86,11 +94,14 @@ public:
 	ADQ              *_adq;
 	AIScripts        *_aiScripts;
 	AmbientSounds    *_ambientSounds;
+	AudioMixer       *_audioMixer;
 	AudioPlayer      *_audioPlayer;
 	AudioSpeech      *_audioSpeech;
 	Chapters         *_chapters;
 	CrimesDatabase   *_crimesDatabase;
 	Combat           *_combat;
+	DialogueMenu     *_dialogueMenu;
+	Elevator         *_elevator;
 	GameFlags        *_gameFlags;
 	GameInfo         *_gameInfo;
 	ItemPickup       *_itemPickup;
@@ -105,6 +116,7 @@ public:
 	Settings         *_settings;
 	SliceAnimations  *_sliceAnimations;
 	SliceRenderer    *_sliceRenderer;
+	Spinner          *_spinner;
 	SuspectsDatabase *_suspectsDatabase;
 	View             *_view;
 	Waypoints        *_waypoints;
@@ -125,8 +137,10 @@ public:
 
 	int in_script_counter;
 
-	Graphics::Surface  _surface1;
-	Graphics::Surface  _surface2;
+	Graphics::Surface  _surfaceGame;
+	Graphics::Surface  _surfaceInterface;
+	Graphics::Surface  _surface4;
+
 	ZBuffer           *_zbuffer;
 
 	Common::RandomSource _rnd;
@@ -162,11 +176,15 @@ public:
 	bool loadSplash();
 	bool init2();
 
+	Common::Point getMousePos();
+
 	void gameLoop();
 	void gameTick();
 	void actorsUpdate();
 	void handleEvents();
-	void handleMouseClick(int x, int y);
+	void handleKeyUp(Common::Event &event);
+	void handleKeyDown(Common::Event &event);
+	void handleMouseAction(int x, int y, bool buttonLeft, bool buttonDown);
 	void handleMouseClickExit(int x, int y, int exitIndex);
 	void handleMouseClickRegion(int x, int y, int regionIndex);
 	void handleMouseClickItem(int x, int y, int itemId);
@@ -188,11 +206,15 @@ public:
 	void playerGainsControl();
 
 	void ISez(const char *str);
+
+	void blitToScreen(const Graphics::Surface &src);
 };
 
 static inline const Graphics::PixelFormat createRGB555() {
 	return Graphics::PixelFormat(2, 5, 5, 5, 0, 10, 5, 0, 0);
 }
+
+void blit(const Graphics::Surface &src, Graphics::Surface &dst);
 
 } // End of namespace BladeRunner
 

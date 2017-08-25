@@ -21,6 +21,8 @@
  */
 
 #include "titanic/star_control/viewport.h"
+#include "titanic/debugger.h"
+#include "titanic/support/simple_file.h"
 #include "titanic/titanic.h"
 
 namespace Titanic {
@@ -107,7 +109,7 @@ void CViewport::setPosition(const FVector &v) {
 }
 
 void CViewport::setPosition(const FPose &pose) {
-	_position = _position.fn5(pose);
+	_position = _position.MatProdRowVect(pose);
 	_flag = false;
 }
 
@@ -156,7 +158,7 @@ void CViewport::fn12() {
 	FPose s2(s1, m3);
 
 	m1.copyFrom(s2);
-	_orientation.fn2(m1);
+	_orientation.matRProd(m1);
 	_flag = false;
 }
 
@@ -181,7 +183,7 @@ void CViewport::reposition(double factor) {
 }
 
 void CViewport::fn15(const FMatrix &matrix) {
-	_orientation.fn3(matrix);
+	_orientation.matLProd(matrix);
 	_flag = false;
 }
 
@@ -215,7 +217,7 @@ FVector CViewport::fn16(int index, const FVector &src) {
 FVector CViewport::fn17(int index, const FVector &src) {
 	FVector dest;
 	FPose pose = getPose();
-	FVector tv = src.fn5(pose);
+	FVector tv = src.MatProdRowVect(pose);
 
 	dest._x = (_valArray[index] + tv._x)
 		* _centerVector._x / (_centerVector._y * tv._z);
@@ -227,7 +229,7 @@ FVector CViewport::fn17(int index, const FVector &src) {
 FVector CViewport::fn18(int index, const FVector &src) {
 	FVector dest;
 	FPose pose = getRawPose();
-	FVector tv = src.fn5(pose);
+	FVector tv = src.MatProdRowVect(pose);
 
 	dest._x = (_valArray[index] + tv._x)
 		* _centerVector._x / (_centerVector._y * tv._z);
@@ -248,7 +250,7 @@ void CViewport::reset() {
 
 	_rawPose.copyFrom(_orientation);
 	_rawPose._vector = _position;
-	_currentPose = _rawPose.fn4();
+	_currentPose = _rawPose.inverseTransform();
 
 	_center = FPoint((double)_width * 0.5, (double)_height * 0.5);
 	_centerVector._x = MIN(_center._x, _center._y);

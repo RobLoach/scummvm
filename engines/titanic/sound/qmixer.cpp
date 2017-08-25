@@ -20,9 +20,9 @@
  *
  */
 
-#include "common/system.h"
 #include "titanic/sound/qmixer.h"
-#include "titanic/titanic.h"
+#include "titanic/debugger.h"
+#include "common/system.h"
 
 namespace Titanic {
 
@@ -208,21 +208,13 @@ void QMixer::qsWaveMixPump() {
 		if (!channel._sounds.empty()) {
 			SoundEntry &sound = channel._sounds.front();
 			if (sound._started && !_mixer->isSoundHandleActive(sound._soundHandle)) {
-				if (sound._loops == -1 || sound._loops-- > 0) {
-					// Need to loop the sound again
-					sound._waveFile->audioStream()->rewind();
-					_mixer->playStream(sound._waveFile->_soundType,
-						&sound._soundHandle, sound._waveFile->audioStream(),
-						-1, channel.getRawVolume(), 0, DisposeAfterUse::NO);
-				} else {
-					// Sound is finished
-					if (sound._callback)
-						// Call the callback to signal end
-						sound._callback(iChannel, sound._waveFile, sound._userData);
+				// Sound is finished
+				if (sound._callback)
+					// Call the callback to signal end
+					sound._callback(iChannel, sound._waveFile, sound._userData);
 
-					// Remove sound record from channel
-					channel._sounds.erase(channel._sounds.begin());
-				}
+				// Remove sound record from channel
+				channel._sounds.erase(channel._sounds.begin());
 			}
 		}
 
@@ -234,10 +226,9 @@ void QMixer::qsWaveMixPump() {
 				if (channel._resetDistance)
 					channel._distance = 0.0;
 
-				// Calculate an effective volume based on distance of source
-				_mixer->playStream(sound._waveFile->_soundType,
-					&sound._soundHandle, sound._waveFile->audioStream(),
-					-1, channel.getRawVolume(), 0, DisposeAfterUse::NO);
+				// Play the wave
+				sound._soundHandle = sound._waveFile->play(
+					sound._loops, channel.getRawVolume());
 				sound._started = true;
 			}
 		}

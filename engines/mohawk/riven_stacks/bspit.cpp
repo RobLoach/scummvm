@@ -126,7 +126,7 @@ void BSpit::xblabbooknextpage(const ArgumentArray &args) {
 
 	// Keep turning pages while the mouse is pressed
 	bool firstPageTurn = true;
-	while ((mouseIsDown() || firstPageTurn) && !_vm->shouldQuit()) {
+	while ((mouseIsDown() || firstPageTurn) && !_vm->hasGameEnded()) {
 		// Check for the last page
 		if (page == 22)
 			return;
@@ -279,6 +279,12 @@ void BSpit::checkYtramCatch(bool playSound) {
 
 	uint32 &ytramTime = _vm->_vars["bytramtime"];
 
+	// The trap has been moved back up.
+	// You can't catch those sneaky Ytrams that way.
+	if (ytramTime == 0) {
+		return;
+	}
+
 	// If the trap still has not gone off, reinstall our timer
 	// This is in case you set the trap, walked away, and returned
 	if (_vm->getTotalPlayTime() < ytramTime) {
@@ -313,7 +319,7 @@ void BSpit::xbait(const ArgumentArray &args) {
 	_vm->_cursor->setCursor(kRivenPelletCursor);
 
 	// Loop until the player lets go (or quits)
-	while (mouseIsDown() && !_vm->shouldQuit()) {
+	while (mouseIsDown() && !_vm->hasGameEnded()) {
 		_vm->doFrame();
 	}
 
@@ -369,7 +375,7 @@ void BSpit::xbaitplate(const ArgumentArray &args) {
 	_vm->getCard()->drawPicture(3);
 
 	// Loop until the player lets go (or quits)
-	while (mouseIsDown() && !_vm->shouldQuit()) {
+	while (mouseIsDown() && !_vm->hasGameEnded()) {
 		_vm->doFrame();
 	}
 
@@ -485,7 +491,7 @@ void BSpit::xbchipper(const ArgumentArray &args) {
 	Common::Point startPos = getMouseDragStartPosition();
 
 	bool pulledLever = false;
-	while (mouseIsDown() && !_vm->shouldQuit()) {
+	while (mouseIsDown() && !_vm->hasGameEnded()) {
 		Common::Point pos = getMousePosition();
 		if (pos.y > startPos.y) {
 			pulledLever = true;

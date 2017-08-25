@@ -57,10 +57,14 @@ public:
 	GraphicsManager(SludgeEngine *vm);
 	virtual ~GraphicsManager();
 
+	void init();
+	void kill();
+
 	// graphics
 	void setWindowSize(uint winWidth, uint winHeight) { _winWidth = winWidth; _winHeight = winHeight; }
-	bool init();
+	bool initGfx();
 	void display();
+	void clear();
 
 	// Parallax
 	bool loadParallax(uint16 v, uint16 fracX, uint16 fracY);
@@ -124,7 +128,7 @@ public:
 	bool isFrozen() { return (_frozenStuff != nullptr); }
 
 	// Sprites
-	void forgetSpriteBank(SpriteBank &forgetme);
+	static void forgetSpriteBank(SpriteBank &forgetme);
 	bool loadSpriteBank(char *filename, SpriteBank &loadhere);
 	bool loadSpriteBank(int fileNum, SpriteBank &loadhere, bool isFont);
 
@@ -132,13 +136,14 @@ public:
 	void flipFontSprite(int x1, int y1, Sprite &single, const SpritePalette &fontPal);
 
 	bool scaleSprite(Sprite &single, const SpritePalette &fontPal, OnScreenPerson *thisPerson, bool mirror);
+	void fixScaleSprite(int x1, int y1, Sprite &single, const SpritePalette &fontPal, OnScreenPerson *thisPerson, const int camX, const int camY, bool);
+
 	void pasteSpriteToBackDrop(int x1, int y1, Sprite &single, const SpritePalette &fontPal);
 	bool reserveSpritePal(SpritePalette &sP, int n);
-	void fixScaleSprite(int x1, int y1, Sprite &single, const SpritePalette &fontPal, OnScreenPerson *thisPerson, const int camX, const int camY, bool);
 	void burnSpriteToBackDrop(int x1, int y1, Sprite &single, const SpritePalette &fontPal);
 
 	void resetSpriteLayers(ZBufferData *ptrZBuffer, int x, int y, bool upsidedown);
-	void addSpriteDepth(Graphics::Surface *ptr, int depth, int x, int y, Graphics::FLIP_FLAGS flip, int width = -1, int height = -1, uint32 color = TS_ARGB(255, 255, 255, 255));
+	void addSpriteDepth(Graphics::Surface *ptr, int depth, int x, int y, Graphics::FLIP_FLAGS flip, int width = -1, int height = -1, bool disposeAfterUse = false);
 	void displaySpriteLayers();
 	void killSpriteLayers();
 
@@ -162,6 +167,11 @@ public:
 	void saveColors(Common::WriteStream *stream);
 	void loadColors(Common::SeekableReadStream *stream);
 
+	// Thumb nail
+	bool saveThumbnail(Common::WriteStream *stream);
+	bool skipThumbnail(Common::SeekableReadStream *stream);
+	void showThumbnail(const Common::String &filename, int x, int y);
+
 private:
 	SludgeEngine *_vm;
 
@@ -176,7 +186,6 @@ private:
 	// LightMap
 	int _lightMapNumber;
 	Graphics::Surface _lightMap;
-	byte _curLight[3];
 
 	// Parallax
 	Parallax *_parallaxStuff;
@@ -199,7 +208,9 @@ private:
 	// Sprites
 	SpriteLayers *_spriteLayers;
 	void fontSprite(bool flip, int x, int y, Sprite &single, const SpritePalette &fontPal);
-	uint32 getDrawColor(OnScreenPerson *thisPerson);
+	Graphics::Surface *duplicateSurface(Graphics::Surface *surface);
+	void blendColor(Graphics::Surface * surface, uint32 color, Graphics::TSpriteBlendMode mode);
+	Graphics::Surface *applyLightmapToSprite(Graphics::Surface *&blitted, OnScreenPerson *thisPerson, bool mirror, int x, int y, int x1, int y1, int diffX, int diffY);
 
 	// Sprite banks
 	LoadedSpriteBanks _allLoadedBanks;

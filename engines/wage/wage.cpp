@@ -134,6 +134,8 @@ Common::Error WageEngine::run() {
 		_gui->regenWeaponsMenu();
 	}
 
+	_gui->_consoleWindow->setTextWindowFont(_world->_player->_currentScene->getFont());
+
 	Common::String input("look");
 	processTurn(&input, NULL);
 	_temporarilyHidden = false;
@@ -167,30 +169,25 @@ void WageEngine::processEvents() {
 			break;
 		case Common::EVENT_KEYDOWN:
 			switch (event.kbd.keycode) {
-			case Common::KEYCODE_BACKSPACE:
-				if (!_inputText.empty()) {
-					_inputText.deleteLastChar();
-					_gui->drawInput();
-				}
-				break;
+			case Common::KEYCODE_RETURN: {
+					_inputText = _gui->_consoleWindow->getInput();
+					Common::String inp = _inputText + '\n';
 
-			case Common::KEYCODE_RETURN:
-				if (_inputText.empty())
+					_gui->appendText(inp.c_str());
+
+					_gui->_consoleWindow->clearInput();
+
+					if (_inputText.empty())
+						break;
+
+					processTurn(&_inputText, NULL);
+					_gui->disableUndo();
 					break;
-
-				processTurn(&_inputText, NULL);
-				_gui->disableUndo();
-				break;
-
+				}
 			default:
 				if (event.kbd.ascii == '~') {
 					_debugger->attach();
 					break;
-				}
-
-				if (event.kbd.ascii >= 0x20 && event.kbd.ascii <= 0x7f) {
-					_inputText += (char)event.kbd.ascii;
-					_gui->drawInput();
 				}
 
 				break;
@@ -210,7 +207,11 @@ void WageEngine::setMenu(Common::String menu) {
 }
 
 void WageEngine::appendText(const char *str) {
-	_gui->appendText(str);
+	Common::String s(str);
+
+	s += '\n';
+
+	_gui->appendText(s.c_str());
 
 	_inputText.clear();
 }
@@ -237,7 +238,7 @@ bool WageEngine::saveDialog() {
 	buttons.push_back(new DialogButton("Yes", 112, 67, 68, 28));
 	buttons.push_back(new DialogButton("Cancel", 205, 67, 68, 28));
 
-	Dialog save(_gui, 291, "Save changes before closing?", &buttons, 1);
+	Dialog save(_gui, 291, _world->_saveBeforeCloseMessage->c_str(), &buttons, 1);
 
 	int button = save.run();
 
@@ -440,6 +441,7 @@ void WageEngine::processTurnInternal(Common::String *textInput, Designed *clickI
 	if (playerScene != _lastScene) {
 		_temporarilyHidden = true;
 		_gui->clearOutput();
+		_gui->_consoleWindow->setTextWindowFont(_world->_player->_currentScene->getFont());
 		regen();
 		Common::String input("look");
 		processTurnInternal(&input, NULL);
@@ -471,14 +473,6 @@ void WageEngine::processTurn(Common::String *textInput, Designed *clickInput) {
 		input = *textInput;
 
 	input.toLowercase();
-	if (input.equals("e"))
-		input = "east";
-	else if (input.equals("w"))
-		input = "west";
-	else if (input.equals("n"))
-		input = "north";
-	else if (input.equals("s"))
-		input = "south";
 
 	processTurnInternal(&input, clickInput);
 	Scene *playerScene = _world->_player->_currentScene;
@@ -512,7 +506,6 @@ void WageEngine::processTurn(Common::String *textInput, Designed *clickInput) {
 	}
 
 	_inputText.clear();
-	_gui->appendText("");
 }
 
 

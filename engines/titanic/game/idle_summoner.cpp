@@ -76,12 +76,22 @@ bool CIdleSummoner::TimerMsg(CTimerMsg *msg) {
 	uint nodesCtr = getNodeChangedCtr();
 	if (msg->_actionVal == 1 && !petDoorOrBellbotPresent()
 			&& nodesCtr > 0 && nodesCtr != _oldNodesCtr) {
+
+		// They can only appear in the Top of the Well and the Embarkation Lobby
 		if (!compareRoomNameTo("TopOfWell") && !compareRoomNameTo("EmbLobby"))
+			return true;
+
+		// WORKAROUND: To benefit the players, don't allow the bots to turn up
+		// when at the Embarkation SuccUBus, in front of the Deskbot's desk,
+		// or when in the Gondola, since it just looks weird
+		CString fullName = getFullViewName();
+		if (fullName == "EmbLobby.Node 2.W" || fullName == "EmbLobby.Node 4.E" ||
+				fullName == "TopOfWell.Node 29.N")
 			return true;
 
 		int region = talkGetDialRegion("BellBot", 1);
 		uint delay = region == 1 ? 15000 : 120000;
-		uint enterTicks = MIN(getNodeEnterTicks(), _ticks);
+		uint enterTicks = MAX(getNodeEnterTicks(), _ticks);
 
 		CString name;
 		uint ticks = getTicksCount() - enterTicks;

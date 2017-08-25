@@ -24,13 +24,16 @@
 #include "titanic/core/mail_man.h"
 #include "titanic/core/resource_key.h"
 #include "titanic/core/room_item.h"
+#include "titanic/core/project_item.h"
+#include "titanic/debugger.h"
+#include "titanic/events.h"
+#include "titanic/game_manager.h"
 #include "titanic/npcs/true_talk_npc.h"
 #include "titanic/pet_control/pet_control.h"
 #include "titanic/star_control/star_control.h"
 #include "titanic/support/files_manager.h"
 #include "titanic/support/screen_manager.h"
 #include "titanic/support/video_surface.h"
-#include "titanic/game_manager.h"
 #include "titanic/titanic.h"
 
 namespace Titanic {
@@ -287,6 +290,26 @@ bool CGameObject::checkPoint(const Point &pt, bool ignoreSurface, bool visibleOn
 	uint transColor = _surface->getTransparencyColor();
 	uint pixel = _surface->getPixel(pixelPos);
 	return pixel != transColor;
+}
+
+bool CGameObject::findPoint(Quadrant quadrant, Point &pt) {
+	// Start by checking a centroid point in the bounds
+	if (!_bounds.isEmpty()) {
+		pt = _bounds.getPoint(quadrant);
+		if (checkPoint(pt, false, true))
+			return true;
+	}
+
+	// Scan through all the area of the bounds to find a valid point
+	for (; pt.y < _bounds.bottom; ++pt.y, pt.x = _bounds.left) {
+		for (; pt.x < _bounds.right; ++pt.x) {
+			if (checkPoint(pt, false, true))
+				return true;
+		}
+	}
+
+	pt = Point(0, 0);
+	return false;
 }
 
 bool CGameObject::clipRect(const Rect &rect1, Rect &rect2) const {
@@ -686,18 +709,21 @@ void CGameObject::playRandomClip(const char *const *names, uint flags) {
 	playClip(name, flags);
 }
 
-void CGameObject::playCutscene(uint startFrame, uint endFrame) {
+bool CGameObject::playCutscene(uint startFrame, uint endFrame) {
 	if (!_surface) {
 		if (!_resource.empty())
 			loadResource(_resource);
 		_resource.clear();
 	}
 
+	bool result = true;
 	if (_surface && _surface->loadIfReady() && _surface->_movie) {
 		disableMouse();
-		_surface->_movie->playCutscene(_bounds, startFrame, endFrame);
+		result = _surface->_movie->playCutscene(_bounds, startFrame, endFrame);
 		enableMouse();
 	}
+
+	return result;
 }
 
 void CGameObject::savePosition() {
@@ -733,6 +759,11 @@ bool CGameObject::hasActiveMovie() const {
 int CGameObject::getMovieFrame() const {
 	if (_surface && _surface->_movie)
 		return _surface->_movie->getFrame();
+	else if (_frameNumber > 0)
+		// WORKAROUND: If an object has a pending frame to be set to,
+		// but the movie hasn't yet been loaded, return that frame
+		return _frameNumber;
+
 	return _initialFrame;
 }
 
@@ -854,57 +885,7 @@ void CGameObject::gotoView(const CString &viewName, const CString &clipName) {
 }
 
 CViewItem *CGameObject::parseView(const CString &viewString) {
-	int firstIndex = viewString.indexOf('.');
-	int lastIndex = viewString.lastIndexOf('.');
-	CString roomName, nodeName, viewName;
-
-	if (firstIndex == -1) {
-		roomName = viewString;
-	} else {
-		roomName = viewString.left(firstIndex);
-
-		if (lastIndex > firstIndex) {
-			nodeName = viewString.mid(firstIndex + 1, lastIndex - firstIndex - 1);
-			viewName = viewString.mid(lastIndex + 1);
-		} else {
-			nodeName = viewString.mid(firstIndex + 1);
-		}
-	}
-
-	CGameManager *gameManager = getGameManager();
-	if (!gameManager)
-		return nullptr;
-
-	CRoomItem *room = gameManager->getRoom();
-	CProjectItem *project = room->getRoot();
-
-	// Ensure we have the specified room
-	if (project) {
-		if (room->getName().compareToIgnoreCase(roomName)) {
-			// Scan for the correct room
-			for (room = project->findFirstRoom();
-					room && room->getName().compareToIgnoreCase(roomName);
-					room = project->findNextRoom(room)) ;
-		}
-	}
-	if (!room)
-		return nullptr;
-
-	// Find the designated node within the room
-	CNodeItem *node = dynamic_cast<CNodeItem *>(room->findChildInstanceOf(CNodeItem::_type));
-	while (node && node->getName().compareToIgnoreCase(nodeName))
-		node = dynamic_cast<CNodeItem *>(room->findNextInstanceOf(CNodeItem::_type, node));
-	if (!node)
-		return nullptr;
-
-	CViewItem *view = dynamic_cast<CViewItem *>(node->findChildInstanceOf(CViewItem::_type));
-	while (view && view->getName().compareToIgnoreCase(viewName))
-		view = dynamic_cast<CViewItem *>(node->findNextInstanceOf(CViewItem::_type, view));
-	if (!view)
-		return nullptr;
-
-	// Find the view, so return it
-	return view;
+	return getRoot()->parseView(viewString);
 }
 
 CString CGameObject::getViewFullName() const {
@@ -934,7 +915,7 @@ bool CGameObject::compareViewNameTo(const CString &name) const {
 	return !getViewFullName().compareToIgnoreCase(name);
 }
 
-int CGameObject::compareRoomNameTo(const CString &name) {
+bool CGameObject::compareRoomNameTo(const CString &name) {
 	CRoomItem *room = getGameManager()->getRoom();
 	return !room->getName().compareToIgnoreCase(name);
 }
@@ -976,7 +957,7 @@ CGameObject *CGameObject::findMailByFlags(RoomFlagsComparison compareType, uint 
 
 	for (CGameObject *obj = mailMan->getFirstObject(); obj;
 			obj = mailMan->getNextObject(obj)) {
-		if (compareRoomFlags(compareType, roomFlags, obj->_roomFlags))
+		if (compareRoomFlags(compareType, obj->_roomFlags, roomFlags))
 			return obj;
 	}
 
@@ -1143,6 +1124,10 @@ CTextCursor *CGameObject::getTextCursor() const {
 	return CScreenManager::_screenManagerPtr->_textCursor;
 }
 
+Movement CGameObject::getMovement() const {
+	return CLinkItem::getMovementFromCursor(_cursorId);
+}
+
 void CGameObject::scrollTextUp() {
 	if (_text)
 		_text->scrollUp(CScreenManager::_screenManagerPtr);
@@ -1274,7 +1259,7 @@ bool CGameObject::clipExistsByEnd(const CString &name, int endFrame) const {
 void CGameObject::petClear() const {
 	CPetControl *petControl = getPetControl();
 	if (petControl)
-		petControl->resetActiveNPC();
+		petControl->resetRemoteTarget();
 }
 
 CDontSaveFileItem *CGameObject::getDontSave() const {
@@ -1372,7 +1357,7 @@ void CGameObject::setPassengerClass(PassengerClass newClass) {
 		// Setup the PET again, so the new class's PET background can take effect
 		CPetControl *petControl = getPetControl();
 		if (petControl)
-			petControl->setup();
+			petControl->reset();
 	}
 }
 

@@ -29,14 +29,11 @@ namespace Sludge {
 class ResourceManager {
 
 public:
-	ResourceManager():
-		_sliceBusy(true),
-		_bigDataFile(0),
-		_startOfDataIndex(0),
-		_startOfTextIndex(0),
-		_startOfSubIndex(0),
-		_startOfObjectIndex(0),
-		_startIndex(0) {}
+	ResourceManager();
+	~ResourceManager();
+
+	void init();
+	void kill();
 
 	void setData(Common::File *readStream);
 	void setFileIndices(uint, uint);
@@ -57,6 +54,7 @@ private:
 	int32 _startIndex;
 
 private:
+	static uint32 _cp1250ToUTF32[128];
 	Common::String convertString(const Common::String &s);
 };
 

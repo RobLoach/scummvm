@@ -21,11 +21,17 @@
  */
 
 #include "titanic/debugger.h"
-#include "titanic/titanic.h"
+#include "titanic/core/node_item.h"
+#include "titanic/core/room_item.h"
 #include "titanic/core/tree_item.h"
+#include "titanic/core/view_item.h"
+#include "titanic/game_manager.h"
 #include "titanic/game/movie_tester.h"
+#include "titanic/main_game_window.h"
 #include "titanic/pet_control/pet_control.h"
 #include "titanic/support/movie.h"
+#include "titanic/titanic.h"
+#include "common/str-array.h"
 
 namespace Titanic {
 
@@ -37,6 +43,7 @@ Debugger::Debugger(TitanicEngine *vm) : GUI::Debugger(), _vm(vm) {
 	registerCmd("item",			WRAP_METHOD(Debugger, cmdItem));
 	registerCmd("movie",		WRAP_METHOD(Debugger, cmdMovie));
 	registerCmd("sound",		WRAP_METHOD(Debugger, cmdSound));
+	registerCmd("cheat",        WRAP_METHOD(Debugger, cmdCheat));
 }
 
 int Debugger::strToInt(const char *s) {
@@ -328,6 +335,15 @@ bool Debugger::cmdSound(int argc, const char **argv) {
 		debugPrintf("sound <name>\n");
 		return true;
 	}
+}
+
+bool Debugger::cmdCheat(int argc, const char **argv) {
+	CGameManager *gameManager = g_vm->_window->_gameManager;
+	CProjectItem *project = g_vm->_window->_project;
+
+	CViewItem *newView = project->parseView("Cheat Room.Node 1.Cheat Rooms View");
+	gameManager->_gameState.changeView(newView, nullptr);
+	return false;
 }
 
 } // End of namespace Titanic

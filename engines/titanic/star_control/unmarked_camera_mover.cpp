@@ -21,10 +21,13 @@
  */
 
 #include "titanic/star_control/unmarked_camera_mover.h"
-#include "titanic/star_control/daffine.h"
+#include "titanic/debugger.h"
+#include "titanic/star_control/base_stars.h" // includes class CStarVector
 #include "titanic/star_control/dvector.h"
+#include "titanic/star_control/daffine.h"
+#include "titanic/star_control/error_code.h"
 #include "titanic/titanic.h"
-#include "common/textconsole.h"
+// Not currently being used: #include "common/textconsole.h"
 
 namespace Titanic {
 
@@ -44,10 +47,10 @@ void CUnmarkedCameraMover::moveTo(const FVector &srcV, const FVector &destV, con
 void CUnmarkedCameraMover::proc10(const FVector &v1, const FVector &v2, const FVector &v3, const FMatrix &m) {
 	if (isLocked())
 		decLockCount();
-
+	//TODO: v3 is unused
 	DVector vector1 = v1;
 	DVector vector2 = v2;
-	DAffine matrix1 = vector2.fn4(vector1);
+	DAffine matrix1 = vector2.getFrameTransform(vector1);
 	DAffine matrix2 = matrix1.compose(m);
 
 	_autoMover.proc3(m, matrix2);

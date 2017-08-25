@@ -56,6 +56,9 @@ public:
 	EventManager(SludgeEngine *vm);
 	virtual ~EventManager();
 
+	void init();
+	void kill();
+
 	// Input
 	void checkInput();
 	bool handleInput();
@@ -73,6 +76,8 @@ public:
 	void restore(FrozenStuffStruct *frozenStuff);
 
 	// Quit
+	void startGame() { _weAreDoneSoQuit = false; }
+	void quitGame() { _weAreDoneSoQuit = true; /* _reallyWantToQuit = true; */ }
 	bool quit() { return _weAreDoneSoQuit; }
 
 private:
@@ -80,6 +85,7 @@ private:
 	InputType _input;
 
 	int _weAreDoneSoQuit;
+	bool _reallyWantToQuit;
 
 	EventHandlers *_currentEvents;
 };

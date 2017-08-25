@@ -21,10 +21,15 @@
  */
 
 #include "titanic/star_control/star_camera.h"
-#include "titanic/star_control/unmarked_camera_mover.h"
-#include "titanic/star_control/marked_camera_mover.h"
+#include "titanic/debugger.h"
+#include "titanic/star_control/camera_mover.h"
 #include "titanic/star_control/daffine.h"
 #include "titanic/star_control/fmatrix.h"
+#include "titanic/star_control/fpoint.h"
+#include "titanic/star_control/marked_camera_mover.h"
+#include "titanic/star_control/unmarked_camera_mover.h"
+#include "titanic/star_control/error_code.h"
+#include "titanic/support/simple_file.h"
 #include "titanic/titanic.h"
 
 namespace Titanic {
@@ -33,12 +38,12 @@ FMatrix *CStarCamera::_priorOrientation;
 FMatrix *CStarCamera::_newOrientation;
 
 CStarCamera::CStarCamera(const CNavigationInfo *data) :
-		_matrixRow(-1), _mover(nullptr), _isMoved(false) {
+		_starLockState(ZERO_LOCKED), _mover(nullptr), _isMoved(false) {
 	setupHandler(data);
 }
 
 CStarCamera::CStarCamera(CViewport *src) :
-		_matrixRow(-1), _mover(nullptr), _isMoved(false), _viewport(src) {
+		_starLockState(ZERO_LOCKED), _mover(nullptr), _isMoved(false), _viewport(src) {
 }
 
 void CStarCamera::init() {
@@ -51,6 +56,10 @@ void CStarCamera::deinit() {
 	delete _newOrientation;
 	_priorOrientation = nullptr;
 	_newOrientation = nullptr;
+}
+
+bool CStarCamera::isLocked() { 
+	return _mover->isLocked();
 }
 
 CStarCamera::~CStarCamera() {
@@ -146,12 +155,12 @@ void CStarCamera::updatePosition(CErrorCode *errorCode) {
 	}
 }
 
-void CStarCamera::increaseSpeed() {
-	_mover->increaseSpeed();
+void CStarCamera::increaseForwardSpeed() {
+	_mover->increaseForwardSpeed();
 }
 
-void CStarCamera::decreaseSpeed() {
-	_mover->decreaseSpeed();
+void CStarCamera::increaseBackwardSpeed() {
+	_mover->increaseBackwardSpeed();
 }
 
 void CStarCamera::fullSpeed() {
@@ -227,17 +236,19 @@ void CStarCamera::setViewportAngle(const FPoint &angles) {
 	if (isLocked())
 		return;
 
-	if (_matrixRow == -1) {
-		// No locked markers
+	switch(_starLockState) {
+	case ZERO_LOCKED: {
 		FPose subX(X_AXIS, angles._y);
-		FPose subY(Y_AXIS, angles._x);
+		FPose subY(Y_AXIS, -angles._x); // needs to be negative or looking left will cause the view to go right
 		FPose sub(subX, subY);
 		proc22(sub);
-	} else if (_matrixRow == 0) {
-		// 1 marker is locked in
+		break;
+	}
+
+	case ONE_LOCKED: {
 		FVector row1 = _matrix._row1;
 		FPose poseX(X_AXIS, angles._y);
-		FPose poseY(Y_AXIS, angles._x);
+		FPose poseY(Y_AXIS, -angles._x); // needs to be negative or looking left will cause the view to go right
 		FPose pose(poseX, poseY);
 
 		FMatrix m1 = _viewport.getOrientation();
@@ -259,24 +270,32 @@ void CStarCamera::setViewportAngle(const FPoint &angles) {
 		tempV5 -= row1;
 		tempV6 -= row1;
 
-		tempV1 = tempV1.fn5(pose);
-		tempV4 = tempV4.fn5(pose);
-		tempV5 = tempV5.fn5(pose);
-		tempV6 = tempV6.fn5(pose);
+		tempV1 = tempV1.MatProdRowVect(pose);
+		tempV4 = tempV4.MatProdRowVect(pose);
+		tempV5 = tempV5.MatProdRowVect(pose);
+		tempV6 = tempV6.MatProdRowVect(pose);
 
 		tempV4 -= tempV1;
 		tempV5 -= tempV1;
 		tempV6 -= tempV1;
-		tempV4.normalize();
-		tempV5.normalize();
-		tempV6.normalize();
+
+		float unusedScale = 0.0;
+		if (!tempV4.normalize(unusedScale) ||
+				!tempV5.normalize(unusedScale) ||
+				!tempV6.normalize(unusedScale)) {
+			// Do the normalization, put the scale amount in unusedScale,
+			// but if it is unsuccessful, crash
+			assert(unusedScale);
+		}
 
 		tempV1 += row1;
 		m1.set(tempV4, tempV5, tempV6);
 		_viewport.setOrientation(m1);
 		_viewport.setPosition(tempV1);
-	} else if (_matrixRow == 1) {
-		// 2 markers locked in
+		break;
+	}
+
+	case TWO_LOCKED: {
 		FVector tempV2;
 		DAffine m1, m2, sub;
 		DVector mrow1, mrow2, mrow3;
@@ -289,7 +308,7 @@ void CStarCamera::setViewportAngle(const FPoint &angles) {
 
 		tempV1 = _matrix._row2 - _matrix._row1;
 		diffV = tempV1;
-		m1 = diffV.fn5();
+		m1 = diffV.rotXY();
 		m1 = m1.compose(subX);
 		subX = m1.inverseTransform();
 		subX = subX.compose(subY);
@@ -321,53 +340,67 @@ void CStarCamera::setViewportAngle(const FPoint &angles) {
 		tempV7._x = m3._row3._x * 1000000.0 + tempV3._x;
 
 		mrow3 = tempV8 = tempV7;
-		tempV3 = tempV3.fn1(subX);
-		mrow1 = mrow1.fn1(subX);
-		mrow2 = mrow2.fn1(subX);
-		mrow3 = mrow3.fn1(subX);
+		tempV3 = tempV3.dAffMatrixProdVec(subX);
+		mrow1 = mrow1.dAffMatrixProdVec(subX);
+		mrow2 = mrow2.dAffMatrixProdVec(subX);
+		mrow3 = mrow3.dAffMatrixProdVec(subX);
 
-		tempV3 = tempV3.fn1(m1);
-		mrow1 = mrow1.fn1(m1);
-		mrow2 = mrow2.fn1(m1);
-		mrow3 = mrow3.fn1(m1);
+		tempV3 = tempV3.dAffMatrixProdVec(m1);
+		mrow1 = mrow1.dAffMatrixProdVec(m1);
+		mrow2 = mrow2.dAffMatrixProdVec(m1);
+		mrow3 = mrow3.dAffMatrixProdVec(m1);
 
 		mrow1 -= tempV3;
 		mrow2 -= tempV3;
 		mrow3 -= tempV3;
-		mrow1.normalize();
-		mrow2.normalize();
-		mrow3.normalize();
+
+		double unusedScale=0.0;
+		if (!mrow1.normalize(unusedScale) ||
+				!mrow2.normalize(unusedScale) ||
+				!mrow3.normalize(unusedScale)) {
+			// Do the normalization, put the scale amount in unusedScale,
+			// but if it is unsuccessful, crash
+			assert(unusedScale);
+		}
+
 		tempV16 = tempV3;
 
 		m3.set(mrow1, mrow2, mrow3);
 		_viewport.setOrientation(m3);
 		_viewport.setPosition(tempV16);
+		break;
+	}
+
+	// TODO: should three stars locked do anything in this function? Error?
+	case THREE_LOCKED:
+		break;
 	}
 }
 
-bool CStarCamera::adDAffineRow(const FVector v) {
-	if (_matrixRow >= 2)
+bool CStarCamera::addLockedStar(const FVector v) {
+	if (_starLockState == THREE_LOCKED)
 		return false;
 
 	CNavigationInfo data;
 	_mover->copyTo(&data);
 	deleteHandler();
 
-	FVector &row = _matrix[++_matrixRow];
+	FVector &row = _matrix[(int)_starLockState];
+	_starLockState = StarLockState((int)_starLockState + 1);
 	row = v;
 	setupHandler(&data);
 	return true;
 }
 
-bool CStarCamera::removeMatrixRow() {
-	if (_matrixRow == -1)
+bool CStarCamera::removeLockedStar() {
+	if (_starLockState == ZERO_LOCKED)
 		return false;
 
 	CNavigationInfo data;
 	_mover->copyTo(&data);
 	deleteHandler();
 
-	--_matrixRow;
+	_starLockState = StarLockState((int)_starLockState - 1);
 	setupHandler(&data);
 	return true;
 }
@@ -387,14 +420,14 @@ void CStarCamera::save(SimpleFile *file, int indent) {
 bool CStarCamera::setupHandler(const CNavigationInfo *src) {
 	CCameraMover *mover = nullptr;
 
-	switch (_matrixRow) {
-	case -1:
+	switch (_starLockState) {
+	case ZERO_LOCKED:
 		mover = new CUnmarkedCameraMover(src);
 		break;
 
-	case 0:
-	case 1:
-	case 2:
+	case ONE_LOCKED:
+	case TWO_LOCKED:
+	case THREE_LOCKED:
 		mover = new CMarkedCameraMover(src);
 		break;
 
@@ -418,9 +451,9 @@ void CStarCamera::deleteHandler() {
 	}
 }
 
-void CStarCamera::lockMarker1(FVector v1, FVector v2, FVector v3) {
-	if (_matrixRow != -1)
-		return;
+bool CStarCamera::lockMarker1(FVector v1, FVector v2, FVector v3) {
+	if (_starLockState != ZERO_LOCKED)
+		return true;
 
 	FVector tempV;
 	double val1, val2, val3, val4, val5;
@@ -442,8 +475,12 @@ void CStarCamera::lockMarker1(FVector v1, FVector v2, FVector v3) {
 	tempV._x = val9 - _viewport._valArray[2];
 	tempV._y = val8;
 
-	v3.normalize();
-	tempV.normalize();
+	float unusedScale = 0.0;
+	if (!v3.normalize(unusedScale) || !tempV.normalize(unusedScale)) {
+		// Do the normalization, put the scale amount in unusedScale,
+		// but if it is unsuccessful, crash
+		assert(unusedScale);
+	}
 
 	FMatrix matrix = _viewport.getOrientation();
 	const FVector &pos = _viewport._position;
@@ -451,15 +488,16 @@ void CStarCamera::lockMarker1(FVector v1, FVector v2, FVector v3) {
 
 	CStarVector *sv = new CStarVector(this, v2);
 	_mover->setVector(sv);
+	return	true;
 }
 
-void CStarCamera::lockMarker2(CViewport *viewport, const FVector &v) {
-	if (_matrixRow != 0)
-		return;
+bool CStarCamera::lockMarker2(CViewport *viewport, const FVector &v) {
+	if (_starLockState != ONE_LOCKED)
+		return true;
 
 	DAffine m2(X_AXIS, _matrix._row1);
 	DVector tempV1 = v - _matrix._row1;
-	DAffine m1 = tempV1.fn5();
+	DAffine m1 = tempV1.rotXY();
 	m1 = m1.compose(m2);
 	m2 = m1.inverseTransform();
 	
@@ -497,11 +535,11 @@ void CStarCamera::lockMarker2(CViewport *viewport, const FVector &v) {
 	tempV3._z = m5._row3._z * 1000000.0 + m4._col1._z;
 	m4._col4 = tempV3;
 
-	tempV2 = tempV2.fn1(m2);
-	m4._col1 = m4._col1.fn1(m2);
-	m4._col3 = m4._col3.fn1(m2);
-	m4._col2 = m4._col2.fn1(m2);
-	m4._col4 = m4._col4.fn1(m2);
+	tempV2 = tempV2.dAffMatrixProdVec(m2);
+	m4._col1 = m4._col1.dAffMatrixProdVec(m2);
+	m4._col3 = m4._col3.dAffMatrixProdVec(m2);
+	m4._col2 = m4._col2.dAffMatrixProdVec(m2);
+	m4._col4 = m4._col4.dAffMatrixProdVec(m2);
 
 	// Find the angle that gives the minimum distance
 	DVector tempPos;
@@ -509,7 +547,7 @@ void CStarCamera::lockMarker2(CViewport *viewport, const FVector &v) {
 	int minDegree = 0;
 	for (int degree = 0; degree < 360; ++degree) {
 		tempPos = m4._col1;
-		tempPos.fn2((double)degree);
+		tempPos.rotVectAxisY((double)degree);
 		double distance = tempV2.getDistance(tempPos);
 
 		if (distance < minDistance) {
@@ -518,35 +556,55 @@ void CStarCamera::lockMarker2(CViewport *viewport, const FVector &v) {
 		}
 	}
 
-	m4._col1.fn2((double)minDegree);
-	m4._col2.fn2((double)minDegree);
-	m4._col3.fn2((double)minDegree);
-	m4._col4.fn2((double)minDegree);
-	m4._col1 = m4._col1.fn1(m1);
-	m4._col2 = m4._col2.fn1(m1);
-	m4._col3 = m4._col3.fn1(m1);
-	m4._col4 = m4._col4.fn1(m1);
+	m4._col1.rotVectAxisY((double)minDegree);
+	m4._col2.rotVectAxisY((double)minDegree);
+	m4._col3.rotVectAxisY((double)minDegree);
+	m4._col4.rotVectAxisY((double)minDegree);
+	m4._col1 = m4._col1.dAffMatrixProdVec(m1);
+	m4._col2 = m4._col2.dAffMatrixProdVec(m1);
+	m4._col3 = m4._col3.dAffMatrixProdVec(m1);
+	m4._col4 = m4._col4.dAffMatrixProdVec(m1);
 
 	m4._col3 -= m4._col1;
 	m4._col2 -= m4._col1;
 	m4._col4 -= m4._col1;
 
-	m4._col3.normalize();
-	m4._col2.normalize();
-	m4._col4.normalize();
+
+
+	double unusedScale=0.0;
+	if (!m4._col2.normalize(unusedScale) ||
+			!m4._col3.normalize(unusedScale) ||
+			!m4._col4.normalize(unusedScale) ) {
+		// Do the normalizations, put the scale amount in unusedScale,
+		// but if any of the normalizations are unsuccessful, crash
+		assert(unusedScale);
+	}
+
 	m5.set(m4._col3, m4._col2, m4._col4);
 
 	FVector newPos = m4._col1;
 	FMatrix m6 = _viewport.getOrientation();
-	_mover->proc8(_viewport._position, newPos, m6, m5);
 
-	CStarVector *sv = new CStarVector(this, v);
-	_mover->setVector(sv);
+	if (minDistance > 1.0e8) {
+		// The transition will do poorly in this case.
+		//removeLockedStar(); // undo locking 2nd star
+		_mover->proc8(_viewport._position, _viewport._position, m6, m6);
+		//CStarVector *sv = new CStarVector(this, v);
+		//_mover->setVector(sv);
+		return	false;
+	}	
+	else {
+		_mover->proc8(_viewport._position, newPos, m6, m5);
+		CStarVector *sv = new CStarVector(this, v);
+		_mover->setVector(sv);
+		
+	}
+	return	true;
 }
 
-void CStarCamera::lockMarker3(CViewport *viewport, const FVector &v) {
-	if (_matrixRow != 1)
-		return;
+bool CStarCamera::lockMarker3(CViewport *viewport, const FVector &v) {
+	if (_starLockState != TWO_LOCKED)
+		return true;
 
 	FMatrix newOr = viewport->getOrientation();
 	FMatrix oldOr = _viewport.getOrientation();
@@ -554,8 +612,10 @@ void CStarCamera::lockMarker3(CViewport *viewport, const FVector &v) {
 	FVector oldPos = _viewport._position;
 
 	_mover->proc8(oldPos, newPos, oldOr, newOr);
+
 	CStarVector *sv = new CStarVector(this, v);
 	_mover->setVector(sv);
+	return true;
 }
 
 } // End of namespace Titanic

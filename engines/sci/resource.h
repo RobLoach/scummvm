@@ -43,6 +43,11 @@ class SeekableReadStream;
 namespace Sci {
 
 enum {
+#ifdef ENABLE_SCI32
+	// Hack to treat RESMAP.PAT/RESSCI.PAT as the highest volume
+	kResPatVolumeNumber = 100,
+#endif
+
 	kResourceHeaderSize = 2, ///< patch type + header size
 
 	/** The maximum allowed size for a compressed or decompressed resource */
@@ -380,7 +385,7 @@ public:
 
 	void setAudioLanguage(int language);
 	int getAudioLanguage() const;
-	void changeAudioDirectory(const Common::String &path);
+	void changeAudioDirectory(Common::String path);
 	bool isGMTrackIncluded();
 	bool isSci11Mac() const { return _volVersion == kResVersionSci11Mac; }
 	ViewType getViewType() const { return _viewType; }
@@ -465,7 +470,8 @@ protected:
 	int _maxMemoryLRU;
 
 	ViewType _viewType; // Used to determine if the game has EGA or VGA graphics
-	Common::List<ResourceSource *> _sources;
+	typedef Common::List<ResourceSource *> SourcesList;
+	SourcesList _sources;
 	int _memoryLocked;	///< Amount of resource bytes in locked memory
 	int _memoryLRU;		///< Amount of resource bytes under LRU control
 	Common::List<Resource *> _LRU; ///< Last Resource Used list

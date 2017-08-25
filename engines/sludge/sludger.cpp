@@ -20,12 +20,14 @@
  *
  */
 
+#include "common/config-manager.h"
 #include "common/debug.h"
 
 #include "sludge/allfiles.h"
 #include "sludge/backdrop.h"
 #include "sludge/builtin.h"
 #include "sludge/cursors.h"
+#include "sludge/event.h"
 #include "sludge/fonttext.h"
 #include "sludge/freeze.h"
 #include "sludge/floor.h"
@@ -54,7 +56,6 @@
 namespace Sludge {
 
 extern int dialogValue;
-extern Variable *launchResult;
 
 int numBIFNames = 0;
 Common::String *allBIFNames;
@@ -74,11 +75,20 @@ extern SpeechStruct *speech;
 extern LoadedFunction *saverFunc;
 
 LoadedFunction *allRunningFunctions = NULL;
-ScreenRegion *lastRegion = NULL;
 VariableStack *noStack = NULL;
 Variable *globalVars;
 
-int numGlobals;
+int numGlobals = 0;
+
+extern SpritePalette pastePalette;
+extern int speechMode;
+extern float speechSpeed;
+extern Variable *launchResult;
+extern int lastFramesPerSecond, thumbWidth, thumbHeight;
+
+extern bool allowAnyFilename;
+extern byte fadeMode;
+extern uint16 saveEncoding;
 
 const char *sludgeText[] = { "?????", "RETURN", "BRANCH", "BR_ZERO",
 		"SET_GLOBAL", "SET_LOCAL", "LOAD_GLOBAL", "LOAD_LOCAL", "PLUS", "MINUS",
@@ -115,15 +125,13 @@ Common::File *openAndVerify(const Common::String &filename, char extra1, char ex
 	}
 	char c;
 	c = fp->readByte();
-	debug(kSludgeDebugDataLoad, "%c", c);
-	while ((c = fp->readByte())) {
-		debug(kSludgeDebugDataLoad, "%c", c);
-	}
+	while ((c = fp->readByte()))
+		;
 
 	int majVersion = fp->readByte();
-	debug(kSludgeDebugDataLoad, "majVersion %i", majVersion);
+	debugC(2, kSludgeDebugDataLoad, "majVersion %i", majVersion);
 	int minVersion = fp->readByte();
-	debug(kSludgeDebugDataLoad, "minVersion %i", minVersion);
+	debugC(2, kSludgeDebugDataLoad, "minVersion %i", minVersion);
 	fileVersion = majVersion * 256 + minVersion;
 
 	Common::String txtVer = "";
@@ -140,9 +148,69 @@ Common::File *openAndVerify(const Common::String &filename, char extra1, char ex
 	return fp;
 }
 
-bool initSludge(const Common::String &filename) {
-	int a = 0;
+void initSludge() {
+	g_sludge->_languageMan->init();
+	g_sludge->_gfxMan->init();
+	g_sludge->_resMan->init();
+	initPeople();
+	initFloor();
+	g_sludge->_objMan->init();
+	initSpeech();
+	initStatusBar();
+	resetRandW();
+	g_sludge->_evtMan->init();
+	g_sludge->_txtMan->init();
+	g_sludge->_cursorMan->init();
 
+	g_sludge->_soundMan->init();
+	if (!ConfMan.hasKey("mute") || !ConfMan.getBool("mute")) {
+		g_sludge->_soundMan->initSoundStuff();
+	}
+
+	// global variables
+	numGlobals = 0;
+	speechMode = 0;
+	launchResult = nullptr;
+
+	lastFramesPerSecond = -1;
+	thumbWidth = thumbHeight = 0;
+	allowAnyFilename = true;
+	captureAllKeys = false;
+	noStack = nullptr;
+	numBIFNames = numUserFunc = 0;
+	allUserFunc = allBIFNames = nullptr;
+	speechSpeed = 1;
+	brightnessLevel = 255;
+	fadeMode = 2;
+	saveEncoding = false;
+}
+
+void killSludge() {
+	killAllFunctions();
+	killAllPeople();
+	killAllRegions();
+	setFloorNull();
+	killAllSpeech();
+	g_sludge->_languageMan->kill();
+	g_sludge->_gfxMan->kill();
+	g_sludge->_resMan->kill();
+	g_sludge->_objMan->kill();
+	g_sludge->_soundMan->killSoundStuff();
+	g_sludge->_evtMan->kill();
+	g_sludge->_txtMan->kill();
+	g_sludge->_cursorMan->kill();
+
+	// global variables
+	pastePalette.reset();
+	numBIFNames = numUserFunc = 0;
+	delete []allUserFunc;
+	delete []allBIFNames;
+}
+
+bool initSludge(const Common::String &filename) {
+	initSludge();
+
+	int a = 0;
 	Common::File *fp = openAndVerify(filename, 'G', 'E', ERROR_BAD_HEADER, gameVersion);
 	if (!fp)
 		return false;
@@ -150,7 +218,7 @@ bool initSludge(const Common::String &filename) {
 	char c = fp->readByte();
 	if (c) {
 		numBIFNames = fp->readUint16BE();
-		debug(kSludgeDebugDataLoad, "numBIFNames %i", numBIFNames);
+		debugC(2, kSludgeDebugDataLoad, "numBIFNames %i", numBIFNames);
 		allBIFNames = new Common::String[numBIFNames];
 		if (!checkNew(allBIFNames))
 			return false;
@@ -160,7 +228,7 @@ bool initSludge(const Common::String &filename) {
 			allBIFNames[fn] = readString(fp);
 		}
 		numUserFunc = fp->readUint16BE();
-		debug(kSludgeDebugDataLoad, "numUserFunc %i", numUserFunc);
+		debugC(2, kSludgeDebugDataLoad, "numUserFunc %i", numUserFunc);
 		allUserFunc = new Common::String[numUserFunc];
 		if (!checkNew(allUserFunc))
 			return false;
@@ -171,7 +239,7 @@ bool initSludge(const Common::String &filename) {
 		}
 		if (gameVersion >= VERSION(1, 3)) {
 			numResourceNames = fp->readUint16BE();
-			debug(kSludgeDebugDataLoad, "numResourceNames %i",
+			debugC(2, kSludgeDebugDataLoad, "numResourceNames %i",
 					numResourceNames);
 			allResourceNames = new Common::String[numResourceNames];
 			if (!checkNew(allResourceNames))
@@ -180,31 +248,32 @@ bool initSludge(const Common::String &filename) {
 			for (int fn = 0; fn < numResourceNames; fn++) {
 				allResourceNames[fn].clear();
 				allResourceNames[fn] = readString(fp);
+				debugC(2, kSludgeDebugDataLoad, "Resource %i: %s", fn, allResourceNames[fn].c_str());
 			}
 		}
 	}
 
 	int winWidth = fp->readUint16BE();
-	debug(kSludgeDebugDataLoad, "winWidth : %i", winWidth);
+	debugC(2, kSludgeDebugDataLoad, "winWidth : %i", winWidth);
 	int winHeight = fp->readUint16BE();
-	debug(kSludgeDebugDataLoad, "winHeight : %i", winHeight);
+	debugC(2, kSludgeDebugDataLoad, "winHeight : %i", winHeight);
 	g_sludge->_gfxMan->setWindowSize(winWidth, winHeight);
 
 	int specialSettings = fp->readByte();
-	debug(kSludgeDebugDataLoad, "specialSettings : %i", specialSettings);
+	debugC(2, kSludgeDebugDataLoad, "specialSettings : %i", specialSettings);
 	g_sludge->_timer.setDesiredfps(1000 / fp->readByte());
 
 	readString(fp);  // Unused - was used for registration purposes.
 
 	uint bytes_read = fp->read(&fileTime, sizeof(FILETIME));
 	if (bytes_read != sizeof(FILETIME) && fp->err()) {
-		debug("Reading error in initSludge.");
+		debug(0, "Reading error in initSludge.");
 	}
 
 	Common::String dataFol = (gameVersion >= VERSION(1, 3)) ? readString(fp) : "";
-	debug(kSludgeDebugDataLoad, "dataFol : %s", dataFol.c_str());
+	debugC(2, kSludgeDebugDataLoad, "dataFol : %s", dataFol.c_str());
 
-	g_sludge->_languageMan->init(fp);
+	g_sludge->_languageMan->createTable(fp);
 
 	if (gameVersion >= VERSION(1, 6)) {
 		fp->readByte();
@@ -215,17 +284,17 @@ bool initSludge(const Common::String &filename) {
 	}
 
 	Common::String checker = readString(fp);
-	debug(kSludgeDebugDataLoad, "checker : %s", checker.c_str());
+	debugC(2, kSludgeDebugDataLoad, "checker : %s", checker.c_str());
 
 	if (checker != "okSoFar")
 		return fatal(ERROR_BAD_HEADER, filename);
 
 	byte customIconLogo = fp->readByte();
-	debug(kSludgeDebugDataLoad, "Game icon type: %i", customIconLogo);
+	debugC(2, kSludgeDebugDataLoad, "Game icon type: %i", customIconLogo);
 
 	if (customIconLogo & 1) {
 		// There is an icon - read it!
-		debug(kSludgeDebugDataLoad, "There is an icon - read it!");
+		debugC(2, kSludgeDebugDataLoad, "There is an icon - read it!");
 
 		// read game icon
 		Graphics::Surface gameIcon;
@@ -236,7 +305,7 @@ bool initSludge(const Common::String &filename) {
 
 	if (customIconLogo & 2) {
 		// There is an logo - read it!
-		debug(kSludgeDebugDataLoad, "There is an logo - read it!");
+		debugC(2, kSludgeDebugDataLoad, "There is an logo - read it!");
 
 		// read game logo
 		Graphics::Surface gameLogo;
@@ -245,7 +314,7 @@ bool initSludge(const Common::String &filename) {
 	}
 
 	numGlobals = fp->readUint16BE();
-	debug(kSludgeDebugDataLoad, "numGlobals : %i", numGlobals);
+	debugC(2, kSludgeDebugDataLoad, "numGlobals : %i", numGlobals);
 
 	globalVars = new Variable[numGlobals];
 	if (!checkNew(globalVars))
@@ -267,7 +336,8 @@ bool initSludge(const Common::String &filename) {
 }
 
 void displayBase() {
-	g_sludge->_gfxMan->drawBackDrop();// Draw the room
+	g_sludge->_gfxMan->clear(); // Clear screen
+	g_sludge->_gfxMan->drawBackDrop();// Draw Backdrop
 	g_sludge->_gfxMan->drawZBuffer(g_sludge->_gfxMan->getCamX(), g_sludge->_gfxMan->getCamY(), false);
 	drawPeople();// Then add any moving characters...
 	g_sludge->_gfxMan->displaySpriteLayers();
@@ -407,26 +477,15 @@ bool continueFunction(LoadedFunction *fun) {
 		return true;
 	}
 
-//	if (numBIFNames) newDebug ("*** Function:", allUserFunc[fun->originalNumber]);
-
-	//debugOut ("SLUDGER: continueFunction\n");
-
 	while (keepLooping) {
 		advanceNow = true;
-		debug(kSludgeDebugStackMachine, "Executing command line %i : ", fun->runThisLine);
+		debugC(1, kSludgeDebugStackMachine, "Executing command line %i : ", fun->runThisLine);
 		param = fun->compiledLines[fun->runThisLine].param;
 		com = fun->compiledLines[fun->runThisLine].theCommand;
-//		fprintf (stderr, "com: %d param: %d (%s)\n", com, param,
-//				(com < numSludgeCommands) ? sludgeText[com] : ERROR_UNKNOWN_MCODE); fflush(stderr);
 
 		if (numBIFNames) {
 			setFatalInfo((fun->originalNumber < numUserFunc) ? allUserFunc[fun->originalNumber] : "Unknown user function", (com < numSludgeCommands) ? sludgeText[com] : ERROR_UNKNOWN_MCODE);
-//			newDebug (
-//				(com < numSludgeCommands) ? sludgeText[com] : "Unknown SLUDGE machine code",
-//				param);
 		}
-
-		//debugOut ("SLUDGER: continueFunction - in da loop: %s\n", sludgeText[com]);
 
 		switch (com) {
 		case SLU_RETURN:
@@ -465,7 +524,7 @@ bool continueFunction(LoadedFunction *fun) {
 				break;
 
 			case SVT_BUILT: {
-				debug(kSludgeDebugStackMachine, "Built-in init value: %i",
+				debugC(1, kSludgeDebugStackMachine, "Built-in init value: %i",
 						fun->reg.varData.intValue);
 				BuiltReturn br = callBuiltIn(fun->reg.varData.intValue, param,
 						fun);
@@ -477,7 +536,7 @@ bool continueFunction(LoadedFunction *fun) {
 
 				case BR_PAUSE:
 					pauseFunction(fun);
-					// No break!
+					// fall through
 
 				case BR_KEEP_AND_PAUSE:
 					keepLooping = false;
@@ -913,22 +972,27 @@ bool runSludge() {
 	return true;
 }
 
+void killAllFunctions() {
+	while (allRunningFunctions)
+		finishFunction(allRunningFunctions);
+}
+
 bool loadFunctionCode(LoadedFunction *newFunc) {
 	uint numLines, numLinesRead;
 
 	if (!g_sludge->_resMan->openSubSlice(newFunc->originalNumber))
 		return false;
 
-	debug(kSludgeDebugDataLoad, "Load function code");
+	debugC(3, kSludgeDebugDataLoad, "Load function code");
 
 	Common::SeekableReadStream *readStream = g_sludge->_resMan->getData();
 	newFunc->unfreezable = readStream->readByte();
 	numLines = readStream->readUint16BE();
-	debug(kSludgeDebugDataLoad, "numLines: %i", numLines);
+	debugC(3, kSludgeDebugDataLoad, "numLines: %i", numLines);
 	newFunc->numArgs = readStream->readUint16BE();
-	debug(kSludgeDebugDataLoad, "numArgs: %i", newFunc->numArgs);
+	debugC(3, kSludgeDebugDataLoad, "numArgs: %i", newFunc->numArgs);
 	newFunc->numLocals = readStream->readUint16BE();
-	debug(kSludgeDebugDataLoad, "numLocals: %i", newFunc->numLocals);
+	debugC(3, kSludgeDebugDataLoad, "numLocals: %i", newFunc->numLocals);
 	newFunc->compiledLines = new LineOfCode[numLines];
 	if (!checkNew(newFunc->compiledLines))
 		return false;
@@ -936,7 +1000,7 @@ bool loadFunctionCode(LoadedFunction *newFunc) {
 	for (numLinesRead = 0; numLinesRead < numLines; numLinesRead++) {
 		newFunc->compiledLines[numLinesRead].theCommand = (sludgeCommand)readStream->readByte();
 		newFunc->compiledLines[numLinesRead].param = readStream->readUint16BE();
-		debug(kSludgeDebugDataLoad, "command line %i: %i", numLinesRead,
+		debugC(3, kSludgeDebugDataLoad, "command line %i: %i", numLinesRead,
 				newFunc->compiledLines[numLinesRead].theCommand);
 	}
 	g_sludge->_resMan->finishAccess();

@@ -22,7 +22,10 @@
 
 #include "titanic/star_control/base_stars.h"
 #include "titanic/star_control/star_camera.h"
+#include "titanic/star_control/star_closeup.h"
 #include "titanic/star_control/star_ref.h"
+#include "titanic/support/files_manager.h"
+#include "titanic/support/simple_file.h"
 #include "titanic/titanic.h"
 
 namespace Titanic {
@@ -560,7 +563,7 @@ int CBaseStars::baseFn2(CSurfaceArea *surfaceArea, CStarCamera *camera) {
 /*------------------------------------------------------------------------*/
 
 void CStarVector::apply() {
-	_owner->adDAffineRow(_vector);
+	_owner->addLockedStar(_vector);
 }
 
 } // End of namespace Titanic

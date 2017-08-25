@@ -21,7 +21,9 @@
  */
 
 #include "titanic/true_talk/tt_parser.h"
+#include "titanic/support/files_manager.h"
 #include "titanic/true_talk/script_handler.h"
+#include "titanic/true_talk/true_talk_manager.h"
 #include "titanic/true_talk/tt_action.h"
 #include "titanic/true_talk/tt_concept.h"
 #include "titanic/true_talk/tt_picture.h"
@@ -399,10 +401,10 @@ int TTparser::replaceNumbers(TTstring &line, int startIndex) {
 		return index;
 
 	bool flag1 = false, flag2 = false, flag3 = false;
-	int total = 0, factor = 0;
+	int total = 0, factor = 0, endIndex = index;
 
 	do {
-		if (numEntry->_flags & NF_1) {
+		if (!(numEntry->_flags & NF_1)) {
 			flag2 = true;
 			if (numEntry->_flags & NF_8)
 				flag1 = true;
@@ -421,8 +423,11 @@ int TTparser::replaceNumbers(TTstring &line, int startIndex) {
 				factor += numEntry->_value;
 			}
 		}
-	} while (replaceNumbers2(line, &index));
 
+		endIndex = index;
+	} while ((numEntry = replaceNumbers2(line, &index)) != nullptr);
+
+	index = endIndex;
 	if (!flag2)
 		return index;
 
@@ -437,8 +442,13 @@ int TTparser::replaceNumbers(TTstring &line, int startIndex) {
 		total = -total;
 
 	CString numStr = CString::format("%d", total);
-	line = CString(line.c_str(), line.c_str() + startIndex) + numStr +
-		CString(line.c_str() + index);
+	line = CString::format("%s%s%s",
+		CString(line.c_str(), line.c_str() + startIndex).c_str(),
+		numStr.c_str(),
+		(index == -1) ? "" : line.c_str() + index - 1
+	);
+
+	index = startIndex + numStr.size();
 	return index;
 }
 
@@ -1403,7 +1413,7 @@ int TTparser::checkForAction() {
 			// Chain of words, so we need to find the last word of the chain,
 			// and set the last-but-one's _nextP to nullptr to detach the last one
 			TTword *prior = nullptr;
-			for (word = word->_nextP; word->_nextP; word = word->_nextP) {
+			for (; word->_nextP; word = word->_nextP) {
 				prior = word;
 			}
 

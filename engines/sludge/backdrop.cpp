@@ -224,6 +224,8 @@ bool GraphicsManager::reserveBackdrop() {
 	_vm->_evtMan->mouseX() = (int)((float)_vm->_evtMan->mouseX() / _cameraZoom);
 	_vm->_evtMan->mouseY() = (int)((float)_vm->_evtMan->mouseY() / _cameraZoom);
 
+	_backdropSurface.create(_sceneWidth, _sceneHeight, *_vm->getScreenPixelFormat());
+
 	return true;
 }
 
@@ -235,7 +237,7 @@ void GraphicsManager::killAllBackDrop() {
 }
 
 bool GraphicsManager::resizeBackdrop(int x, int y) {
-	debug(kSludgeDebugGraphics, "Load HSI");
+	debugC(1, kSludgeDebugGraphics, "Load HSI");
 	_sceneWidth = x;
 	_sceneHeight = y;
 	return reserveBackdrop();
@@ -247,7 +249,7 @@ bool GraphicsManager::killResizeBackdrop(int x, int y) {
 }
 
 void GraphicsManager::loadBackDrop(int fileNum, int x, int y) {
-	debug(kSludgeDebugGraphics, "Load back drop of num %i at position %i, %i", fileNum, x, y);
+	debugC(1, kSludgeDebugGraphics, "Load back drop of num %i at position %i, %i", fileNum, x, y);
 	setResourceForFatal(fileNum);
 	if (!g_sludge->_resMan->openFileFromNum(fileNum)) {
 		fatal("Can't load overlay image");
@@ -269,7 +271,7 @@ void GraphicsManager::loadBackDrop(int fileNum, int x, int y) {
 }
 
 void GraphicsManager::mixBackDrop(int fileNum, int x, int y) {
-	debug(kSludgeDebugGraphics, "Mix back drop of num %i at position %i, %i", fileNum, x, y);
+	debugC(1, kSludgeDebugGraphics, "Mix back drop of num %i at position %i, %i", fileNum, x, y);
 	setResourceForFatal(fileNum);
 	if (!g_sludge->_resMan->openFileFromNum(fileNum)) {
 		fatal("Can't load overlay image");
@@ -300,6 +302,11 @@ void GraphicsManager::blankScreen(int x1, int y1, int x2, int y2) {
 		y2 = (int)_sceneHeight;
 
 	_backdropSurface.fillRect(Common::Rect(x1, y1, x2, y2), _currentBlankColour);
+
+	// reset zBuffer
+	if (_zBuffer->originalNum >= 0) {
+		setZBuffer(_zBuffer->originalNum);
+	}
 }
 
 void GraphicsManager::blankAllScreen() {
@@ -345,6 +352,11 @@ void GraphicsManager::drawHorizontalLine(uint x1, uint y, uint x2) {
 void GraphicsManager::darkScreen() {
 	Graphics::TransparentSurface tmp(_backdropSurface, false);
 	tmp.blit(_backdropSurface, 0, 0, Graphics::FLIP_NONE, nullptr, TS_ARGB(0, 255 >> 1, 0, 0));
+
+	// reset zBuffer
+	if (_zBuffer->originalNum >= 0) {
+		setZBuffer(_zBuffer->originalNum);
+	}
 }
 
 void GraphicsManager::drawBackDrop() {
@@ -365,18 +377,39 @@ bool GraphicsManager::loadLightMap(int v) {
 
 	killLightMap();
 	_lightMapNumber = v;
+	_lightMap.create(_sceneWidth, _sceneWidth, *_vm->getScreenPixelFormat());
 
-	if (!ImgLoader::loadImage(g_sludge->_resMan->getData(), &_lightMap))
+	Graphics::TransparentSurface tmp;
+
+	if (!ImgLoader::loadImage(g_sludge->_resMan->getData(), &tmp))
 		return false;
 
-	if (_lightMapMode == LIGHTMAPMODE_HOTSPOT) {
-		if (_lightMap.w != _sceneWidth || _lightMap.h != _sceneHeight) {
+	if (tmp.w != _sceneWidth || tmp.h != _sceneHeight) {
+		if (_lightMapMode == LIGHTMAPMODE_HOTSPOT) {
 			return fatal("Light map width and height don't match scene width and height. That is required for lightmaps in HOTSPOT mode.");
+		} else if (_lightMapMode == LIGHTMAPMODE_PIXEL) {
+			tmp.blit(_lightMap, 0, 0, Graphics::FLIP_NONE, nullptr, TS_ARGB(255, 255, 255, 255), _sceneWidth, _sceneHeight);
+		} else {
+			_lightMap.copyFrom(tmp);
 		}
+	} else {
+		_lightMap.copyFrom(tmp);
 	}
 
+	tmp.free();
 	g_sludge->_resMan->finishAccess();
 	setResourceForFatal(-1);
+
+	// Debug code to output light map image
+#if 0
+	Common::DumpFile *outFile = new Common::DumpFile();
+	Common::String outName = Common::String::format("lightmap_%i.png", v);
+	outFile->open(outName);
+	Image::writePNG(*outFile, _lightMap);
+	outFile->finalize();
+	outFile->close();
+	delete outFile;
+#endif
 
 	return true;
 }
@@ -405,7 +438,7 @@ bool GraphicsManager::loadLightMap(int ssgVersion, Common::SeekableReadStream *s
 }
 
 bool GraphicsManager::loadHSI(Common::SeekableReadStream *stream, int x, int y, bool reserve) {
-	debug(kSludgeDebugGraphics, "Load HSI");
+	debugC(1, kSludgeDebugGraphics, "Load HSI");
 	if (reserve) {
 		killAllBackDrop(); // kill all
 	}
@@ -429,12 +462,13 @@ bool GraphicsManager::loadHSI(Common::SeekableReadStream *stream, int x, int y, 
 	if (y == IN_THE_CENTRE)
 		y = (_sceneHeight - realPicHeight) >> 1;
 	if (x < 0 || x + realPicWidth > _sceneWidth || y < 0 || y + realPicHeight > _sceneHeight) {
-		debug(kSludgeDebugGraphics, "Illegal back drop size");
+		debugC(0, kSludgeDebugGraphics, "Illegal back drop size");
 		return false;
 	}
 
 	// copy surface loaded to backdrop
-	_backdropSurface.copyRectToSurface(tmp.getPixels(), tmp.pitch, x, y, tmp.w, tmp.h);
+	Graphics::TransparentSurface tmp_trans(tmp, false);
+	tmp_trans.blit(_backdropSurface, x, y);
 	tmp.free();
 
 	_origBackdropSurface.copyFrom(_backdropSurface);
@@ -444,7 +478,7 @@ bool GraphicsManager::loadHSI(Common::SeekableReadStream *stream, int x, int y, 
 }
 
 bool GraphicsManager::mixHSI(Common::SeekableReadStream *stream, int x, int y) {
-	debug(kSludgeDebugGraphics, "Load mixHSI");
+	debugC(1, kSludgeDebugGraphics, "Load mixHSI");
 	Graphics::Surface mixSurface;
 	if (!ImgLoader::loadImage(stream, &mixSurface, 0))
 		return false;

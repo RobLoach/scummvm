@@ -70,6 +70,20 @@ private:
 	Common::Array<uint16> _index;
 };
 
+/** Actions that can be performed using the keyboard */
+enum RivenKeyAction {
+	kKeyActionNone,
+	kKeyActionSkip,
+	kKeyActionMoveForward,
+	kKeyActionMoveForwardLeft,
+	kKeyActionMoveForwardRight,
+	kKeyActionMoveLeft,
+	kKeyActionMoveRight,
+	kKeyActionMoveBack,
+	kKeyActionLookUp,
+	kKeyActionLookDown
+};
+
 /**
  * A game level
  *
@@ -129,6 +143,13 @@ public:
 	/** Handle a mouse move event */
 	void onMouseMove(const Common::Point &mouse);
 
+	/**
+	 * The mouse cursor needs to be refreshed on the next interactive frame
+	 *
+	 * Even if the mouse didn't move.
+	 */
+	void queueMouseCursorRefresh();
+
 	/** Frame update handler */
 	void onFrame();
 
@@ -145,13 +166,13 @@ public:
 	void mouseForceUp();
 
 	/** Handle a key press event */
-	void onKeyPressed(const Common::KeyCode keyCode);
+	void onKeyPressed(const Common::KeyState &keyState);
 
-	/** Get the pressed keyboard key if any */
-	Common::KeyCode keyGetPressed() const;
+	/** Get the action for the pressed keyboard key, if any */
+	RivenKeyAction keyGetAction() const;
 
 	/** Force the keyboard to be considered unpressed until the next key press */
-	void keyForceUp();
+	void keyResetAction();
 
 	// Common external commands
 	void xflies(const ArgumentArray &args); // Start the "flies" effect
@@ -203,11 +224,13 @@ private:
 
 	CommandsMap _commands;
 
-	Common::KeyCode _keyPressed;
+	RivenKeyAction _keyAction;
+	RivenKeyAction mapKeyStateToKeyAction(const Common::KeyState &keyState);
 
 	bool _mouseIsDown;
 	Common::Point _mousePosition;
 	Common::Point _mouseDragStartPosition;
+	bool _shouldRefreshMouseCursor;
 
 	// Timer
 	Common::SharedPtr<TimerProc> _timerProc;

@@ -60,12 +60,17 @@ struct LoadedFunction {
 
 bool initSludge(const Common::String &);
 bool runSludge();
+
+void initSludge();
+void killSludge();
+
 void displayBase();
 void sludgeDisplay();
 int startNewFunctionNum(uint, uint, LoadedFunction *, VariableStack*&, bool = true);
 bool handleInput();
 void restartFunction(LoadedFunction *fun);
 bool loadFunctionCode(LoadedFunction *newFunc);
+void killAllFunctions();
 
 void finishFunction(LoadedFunction *fun);
 void abortFunction(LoadedFunction *fun);

@@ -20,13 +20,15 @@
  *
  */
 
-#include "common/system.h"
-#include "graphics/pixelformat.h"
-#include "video/avi_decoder.h"
 #include "titanic/support/avi_surface.h"
 #include "titanic/support/screen_manager.h"
 #include "titanic/support/video_surface.h"
+#include "titanic/events.h"
 #include "titanic/titanic.h"
+#include "common/system.h"
+#include "graphics/pixelformat.h"
+#include "graphics/screen.h"
+#include "video/avi_decoder.h"
 
 namespace Titanic {
 
@@ -52,7 +54,7 @@ AVISurface::AVISurface(const CResourceKey &key) : _movieName(key.getString()) {
 	_priorFrame = -1;
 
 	// Create a decoder
-	_decoder = new AVIDecoder(Audio::Mixer::kPlainSoundType);
+	_decoder = new AVIDecoder();
 	if (!_decoder->loadFile(_movieName))
 		error("Could not open video - %s", key.getString().c_str());
 
@@ -471,8 +473,9 @@ Graphics::ManagedSurface *AVISurface::duplicateTransparency() const {
 	}
 }
 
-void AVISurface::playCutscene(const Rect &r, uint startFrame, uint endFrame) {
-	bool isDifferent = false;
+bool AVISurface::playCutscene(const Rect &r, uint startFrame, uint endFrame) {
+	if (g_vm->shouldQuit())
+		return false;
 	
 	if (_currentFrame != ((int)startFrame - 1) || startFrame == 0) {
 		// Start video playback at the desired starting frame
@@ -484,9 +487,10 @@ void AVISurface::playCutscene(const Rect &r, uint startFrame, uint endFrame) {
 		_decoder->start();
 	}
 
-	isDifferent = _movieFrameSurface[0]->w != r.width() ||
+	bool isDifferent = _movieFrameSurface[0]->w != r.width() ||
 		_movieFrameSurface[0]->h != r.height();
 
+	bool isFinished = true;
 	while (_currentFrame < (int)endFrame && !g_vm->shouldQuit()) {
 		if (isNextFrame()) {
 			renderFrame();
@@ -507,11 +511,14 @@ void AVISurface::playCutscene(const Rect &r, uint startFrame, uint endFrame) {
 		}
 
 		// Brief wait, and check at the same time for clicks to abort the clip
-		if (g_vm->_events->waitForPress(10))
+		if (g_vm->_events->waitForPress(10)) {
+			isFinished = false;
 			break;
+		}
 	}
 
 	stop();
+	return isFinished && !g_vm->shouldQuit();
 }
 
 uint AVISurface::getBitDepth() const {

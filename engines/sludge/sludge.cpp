@@ -52,6 +52,11 @@ SludgeEngine::SludgeEngine(OSystem *syst, const SludgeGameDescription *gameDesc)
 	DebugMan.addDebugChannel(kSludgeDebugStackMachine, "Stack Machine", "Stack Machine debug level");
 	DebugMan.addDebugChannel(kSludgeDebugBuiltin, "Built-in", "Built-in debug level");
 	DebugMan.addDebugChannel(kSludgeDebugGraphics, "Graphics", "Graphics debug level");
+	DebugMan.addDebugChannel(kSludgeDebugZBuffer, "ZBuffer", "ZBuffer debug level");
+	DebugMan.addDebugChannel(kSludgeDebugSound, "Sound", "Sound debug level");
+
+	DebugMan.enableDebugChannel("Data Load");
+	DebugMan.enableDebugChannel("Built-in");
 
 	// init graphics
 	_origFormat = new Graphics::PixelFormat(2, 5, 6, 5, 0, 11, 5, 0, 0);
@@ -59,10 +64,10 @@ SludgeEngine::SludgeEngine(OSystem *syst, const SludgeGameDescription *gameDesc)
 
 	// Init Strings
 	launchMe = "";
+	launchNext = "";
 	loadNow = "";
 	gamePath = "";
 	bundleFolder = "";
-
 	fatalMessage = "";
 	fatalInfo = "Initialisation error! Something went wrong before we even got started!";
 

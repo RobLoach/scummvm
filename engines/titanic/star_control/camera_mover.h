@@ -23,12 +23,17 @@
 #ifndef TITANIC_CAMERA_MOVER_H
 #define TITANIC_CAMERA_MOVER_H
 
-#include "titanic/support/simple_file.h"
-#include "titanic/star_control/base_stars.h"
-#include "titanic/star_control/error_code.h"
-#include "titanic/star_control/fmatrix.h"
+//#include "titanic/support/simple_file.h"
+//#include "titanic/star_control/error_code.h"
+//#include "titanic/star_control/fmatrix.h" // class FVector
 
 namespace Titanic {
+
+class CErrorCode;
+class CStarVector;
+class FMatrix;
+class FVector;
+class SimpleFile;
 
 struct CNavigationInfo {
 	double _speed;
@@ -53,14 +58,14 @@ public:
 	virtual void copyTo(CNavigationInfo *dest);
 
 	/**
-	 * Increases movement speed
+	 * Increases movement speed in forward direction
 	 */
-	virtual void increaseSpeed();
+	virtual void increaseForwardSpeed();
 
 	/**
-	 * Decreases movement speed
+	 * Decreases movement speed in backward direction
 	 */
-	virtual void decreaseSpeed();
+	virtual void increaseBackwardSpeed();
 
 	/**
 	 * Increase to full speed

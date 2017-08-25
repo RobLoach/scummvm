@@ -58,6 +58,7 @@ MohawkEngine_Riven::MohawkEngine_Riven(OSystem *syst, const MohawkGameDescriptio
 	_showHotspots = false;
 	_activatedPLST = false;
 	_activatedSLST = false;
+	_gameEnded = false;
 	_extrasFile = nullptr;
 	_stack = nullptr;
 	_gfx = nullptr;
@@ -138,6 +139,11 @@ Common::Error MohawkEngine_Riven::run() {
 
 	initVars();
 
+	// Check the user has copied all the required datafiles
+	if (!checkDatafiles()) {
+		return Common::kNoGameDataFoundError;
+	}
+
 	// We need to have a cursor source, or the game won't work
 	if (!_cursor->hasSource()) {
 		Common::String message = _("You're missing a Riven executable. The Windows executable is 'riven.exe' or 'rivendmo.exe'. ");
@@ -186,7 +192,7 @@ Common::Error MohawkEngine_Riven::run() {
 	}
 
 
-	while (!shouldQuit())
+	while (!hasGameEnded())
 		doFrame();
 
 	return Common::kNoError;
@@ -212,7 +218,7 @@ void MohawkEngine_Riven::doFrame() {
 			_inventory->checkClick(_eventMan->getMousePos());
 			break;
 		case Common::EVENT_KEYUP:
-			_stack->keyForceUp();
+			_stack->keyResetAction();
 			break;
 		case Common::EVENT_KEYDOWN:
 			switch (event.kbd.keycode) {
@@ -249,7 +255,7 @@ void MohawkEngine_Riven::doFrame() {
 				}
 				break;
 			default:
-				_stack->onKeyPressed(event.kbd.keycode);
+				_stack->onKeyPressed(event.kbd);
 				break;
 			}
 			break;
@@ -288,11 +294,6 @@ void MohawkEngine_Riven::pauseEngineIntern(bool pause) {
 // Stack/Card-Related Functions
 
 void MohawkEngine_Riven::changeToStack(uint16 stackId) {
-	// The endings are in reverse order because of the way the 1.02 patch works.
-	// The only "Data3" file is j_Data3.mhk from that patch. Patch files have higher
-	// priorities over the regular files and are therefore loaded and checked first.
-	static const char *endings[] = { "_Data3.mhk", "_Data2.mhk", "_Data1.mhk", "_Data.mhk", "_Sounds.mhk" };
-
 	// Don't change stack to the current stack (if the files are loaded)
 	if (_stack && _stack->getId() == stackId && !_mhk.empty())
 		return;
@@ -317,15 +318,16 @@ void MohawkEngine_Riven::changeToStack(uint16 stackId) {
 	// Get the prefix character for the destination stack
 	char prefix = RivenStacks::getName(stackId)[0];
 
-	// Load any file that fits the patterns
-	for (int i = 0; i < ARRAYSIZE(endings); i++) {
-		Common::String filename = Common::String(prefix) + endings[i];
-
-		MohawkArchive *mhk = new MohawkArchive();
-		if (mhk->openFile(filename))
-			_mhk.push_back(mhk);
-		else
-			delete mhk;
+	// Load files that start with the prefix
+	const char **datafiles = listExpectedDatafiles();
+	for (int i = 0; datafiles[i] != nullptr; i++) {
+		if (datafiles[i][0] == prefix) {
+			MohawkArchive *mhk = new MohawkArchive();
+			if (mhk->openFile(datafiles[i]))
+				_mhk.push_back(mhk);
+			else
+				delete mhk;
+		}
 	}
 
 	// Make sure we have loaded files
@@ -334,6 +336,82 @@ void MohawkEngine_Riven::changeToStack(uint16 stackId) {
 
 	delete _stack;
 	_stack = constructStackById(stackId);
+}
+
+const char **MohawkEngine_Riven::listExpectedDatafiles() const {
+	// The files are in reverse order because of the way the 1.02 patch works.
+	// The only "Data3" file is j_Data3.mhk from that patch. Patch files have higher
+	// priorities over the regular files and are therefore loaded and checked first.
+	static const char *datafilesDVD[] = {
+			"a_Data.mhk",                  "a_Sounds.mhk",
+			"b_Data.mhk",                  "b_Sounds.mhk",
+			"g_Data.mhk",                  "g_Sounds.mhk",
+			"j_Data2.mhk", "j_Data1.mhk",  "j_Sounds.mhk",
+			"o_Data.mhk",                  "o_Sounds.mhk",
+			"p_Data.mhk",                  "p_Sounds.mhk",
+			"r_Data.mhk",                  "r_Sounds.mhk",
+			"t_Data2.mhk", "t_Data1.mhk",  "t_Sounds.mhk",
+			nullptr
+	};
+
+	static const char *datafilesCD[] = {
+			"a_Data.mhk",                                "a_Sounds.mhk",
+			"b_Data1.mhk", "b_Data.mhk",                 "b_Sounds.mhk",
+			"g_Data.mhk",                                "g_Sounds.mhk",
+			"j_Data3.mhk", "j_Data2.mhk", "j_Data1.mhk", "j_Sounds.mhk",
+			"o_Data.mhk",                                "o_Sounds.mhk",
+			"p_Data.mhk",                                "p_Sounds.mhk",
+			"r_Data.mhk",                                "r_Sounds.mhk",
+			"t_Data.mhk",                                "t_Sounds.mhk",
+			nullptr
+	};
+
+	static const char *datafilesDemo[] = {
+			"a_Data.mhk", "a_Sounds.mhk",
+			"j_Data.mhk", "j_Sounds.mhk",
+			"t_Data.mhk", "t_Sounds.mhk",
+			nullptr
+	};
+
+	const char **datafiles;
+	if (getFeatures() & GF_DEMO) {
+		datafiles = datafilesDemo;
+	} else if (getFeatures() & GF_DVD) {
+		datafiles = datafilesDVD;
+	} else {
+		datafiles = datafilesCD;
+	}
+	return datafiles;
+}
+
+bool MohawkEngine_Riven::checkDatafiles() {
+	Common::String missingFiles;
+
+	const char **datafiles = listExpectedDatafiles();
+	for (int i = 0; datafiles[i] != nullptr; i++) {
+		if (!SearchMan.hasFile(datafiles[i])) {
+			if (strcmp(datafiles[i], "j_Data3.mhk") == 0
+					|| strcmp(datafiles[i], "b_Data1.mhk") == 0) {
+				// j_Data3.mhk and b_Data1.mhk come from the 1.02 patch. They are not required to play.
+				continue;
+			}
+
+			if (!missingFiles.empty()) {
+				missingFiles += ", ";
+			}
+			missingFiles += datafiles[i];
+		}
+	}
+
+	if (missingFiles.empty()) {
+		return true;
+	}
+
+	Common::String message = _("You are missing the following required Riven data files:\n") + missingFiles;
+	warning("%s", message.c_str());
+	GUIErrorMessage(message);
+
+	return false;
 }
 
 RivenStack *MohawkEngine_Riven::constructStackById(uint16 id) {
@@ -411,7 +489,7 @@ void MohawkEngine_Riven::changeToCard(uint16 dest) {
 	_card->enter(true);
 
 	// Now we need to redraw the cursor if necessary and handle mouse over scripts
-	_stack->onMouseMove(_stack->getMousePosition());
+	_stack->queueMouseCursorRefresh();
 
 	// Finally, install any hardcoded timer
 	_stack->installCardTimer();
@@ -424,7 +502,7 @@ Common::SeekableReadStream *MohawkEngine_Riven::getExtrasResource(uint32 tag, ui
 void MohawkEngine_Riven::delay(uint32 ms) {
 	uint32 startTime = _system->getMillis();
 
-	while (_system->getMillis() < startTime + ms && !shouldQuit()) {
+	while (_system->getMillis() < startTime + ms && !hasGameEnded()) {
 		doFrame();
 	}
 }
@@ -432,7 +510,10 @@ void MohawkEngine_Riven::delay(uint32 ms) {
 void MohawkEngine_Riven::runLoadDialog() {
 	GUI::SaveLoadChooser slc(_("Load game:"), _("Load"), false);
 
+	pauseEngine(true);
 	int slot = slc.runModalWithCurrentTarget();
+	pauseEngine(false);
+
 	if (slot >= 0) {
 		loadGameStateAndDisplayError(slot);
 	}
@@ -495,6 +576,14 @@ bool MohawkEngine_Riven::canLoadGameStateCurrently() {
 
 bool MohawkEngine_Riven::canSaveGameStateCurrently() {
 	return canLoadGameStateCurrently();
+}
+
+bool MohawkEngine_Riven::hasGameEnded() const {
+	return _gameEnded || shouldQuit();
+}
+
+void MohawkEngine_Riven::setGameEnded() {
+	_gameEnded = true;
 }
 
 bool ZipMode::operator== (const ZipMode &z) const {

@@ -30,6 +30,8 @@
 #include "mohawk/resource.h"
 #include "mohawk/riven.h"
 
+#include "common/memstream.h"
+
 namespace Mohawk {
 
 RivenCard::RivenCard(MohawkEngine_Riven *vm, uint16 id) :
@@ -44,6 +46,7 @@ RivenCard::RivenCard(MohawkEngine_Riven *vm, uint16 id) :
 	loadCardMovieList(id);
 	loadCardHotspotEnableList(id);
 	loadCardWaterEffectList(id);
+	applyPatches(id);
 }
 
 RivenCard::~RivenCard() {
@@ -63,13 +66,188 @@ void RivenCard::loadCardResource(uint16 id) {
 	_zipModePlace = inStream->readUint16BE();
 	_scripts = _vm->_scriptMan->readScripts(inStream);
 
-	// Apply script patches for this card
+	delete inStream;
+}
+
+void RivenCard::applyPatches(uint16 id) {
 	uint32 globalId = _vm->getStack()->getCardGlobalId(id);
+
+	// Apply properties patches
+
+	// On Jungle Island on the back side of the "beetle" gate, the forward hotspot
+	// is always enabled, preventing keyboard navigation from automatically opening
+	// the gate.
+	// We patch the card so that the forward opcode is enabled only when the gate is open.
+	//
+	// New hotspot enable entries:
+	// == Hotspot enable 5 ==
+	// hotspotId: 3
+	// enabled: 1
+	//
+	// == Hotspot enable 6 ==
+	// hotspotId: 3
+	// enabled: 0
+	//
+	// Additional load script fragment:
+	// switch (jgate) {
+	// case 0:
+	//     activateBLST(6);
+	//     break;
+	// case 1:
+	//     activateBLST(5);
+	//     break;
+	if (globalId == 0x8EB7) {
+		HotspotEnableRecord forwardEnabled;
+		forwardEnabled.index = _hotspotEnableList.back().index + 1;
+		forwardEnabled.hotspotId = 3;
+		forwardEnabled.enabled = 1;
+		_hotspotEnableList.push_back(forwardEnabled);
+
+		HotspotEnableRecord forwardDisabled;
+		forwardDisabled.index = _hotspotEnableList.back().index + 1;
+		forwardDisabled.hotspotId = 3;
+		forwardDisabled.enabled = 0;
+		_hotspotEnableList.push_back(forwardDisabled);
+
+		uint16 jGateVariable = _vm->getStack()->getIdFromName(kVariableNames, "jgate");
+		uint16 patchData[] = {
+				1, // Command count in script
+				kRivenCommandSwitch,
+				2, // Unused
+				jGateVariable,
+				2, // Branches count
+
+				0, // jgate == 0 branch (gate closed)
+				1, // Command count in sub-script
+				kRivenCommandActivateBLST,
+				1, // Argument count
+				forwardDisabled.index,
+
+				1, // jgate == 1 branch (gate open)
+				1, // Command count in sub-script
+				kRivenCommandActivateBLST,
+				1, // Argument count
+				forwardEnabled.index
+		};
+
+		RivenScriptPtr patchScript = _vm->_scriptMan->readScriptFromData(patchData, ARRAYSIZE(patchData));
+
+		// Append the patch to the existing script
+		RivenScriptPtr loadScript = getScript(kCardLoadScript);
+		loadScript += patchScript;
+
+		debugC(kRivenDebugPatches, "Applied fix always enabled forward hotspot in card %x", globalId);
+	}
+
+	// In Gehn's office, after having encountered him once before and coming back
+	// with the trap book, the draw update script of card 1 tries to switch to
+	// card 2 while still loading card 1. Switching cards is not allowed during
+	// draw update scripts, resulting in an use after free crash.
+	//
+	// Here we backport the fix that has been made in the DVD version to the CD version.
+	//
+	// Script before patch:
+	// == Script 1 ==
+	// type: CardUpdate
+	// switch (agehn) {
+	// case 1:
+	//   switch (atrapbook) {
+	//     case 1:
+	//       obutton = 1;
+	//       transition(16);
+	//       switchCard(2);
+	//       break;
+	//   }
+	// break;
+	// case 2:
+	//   activatePLST(5);
+	//   break;
+	// case 3:
+	//   activatePLST(5);
+	//   break;
+	// }
+	//
+	//
+	// Script after patch:
+	// == Script 1 ==
+	// type: CardUpdate
+	// switch (agehn) {
+	// case 1:
+	//   switch (atrapbook) {
+	//     case 1:
+	//       obutton = 1;
+	//       activatePLST(6);
+	//       break;
+	//   }
+	// break;
+	// case 2:
+	//   activatePLST(5);
+	//   break;
+	// case 3:
+	//   activatePLST(5);
+	//   break;
+	// }
+	//
+	// == Script 2 ==
+	// type: CardEnter
+	// switch (agehn) {
+	// case 1:
+	//   switch (atrapbook) {
+	//     case 1:
+	//       transition(16);
+	//       switchCard(2);
+	//       break;
+	//     }
+	//   break;
+	// }
+	if (globalId == 0x2E76 && !(_vm->getFeatures() & GF_DVD)) {
+		uint16 aGehnVariable = _vm->getStack()->getIdFromName(kVariableNames, "agehn");
+		uint16 aTrapBookVariable = _vm->getStack()->getIdFromName(kVariableNames, "atrapbook");
+		uint16 patchData[] = {
+				1, // Command count in script
+				kRivenCommandSwitch,
+				2, // Unused
+				aGehnVariable,
+				1, // Branches count
+
+				1, // agehn == 1 branch
+				1, // Command count in sub-script
+				kRivenCommandSwitch,
+				2, // Unused
+				aTrapBookVariable,
+				1, // Branches count
+
+				1, // atrapbook == 1 branch
+				2, // Command count in sub-script
+				kRivenCommandTransition,
+				1, // Argument count
+				kRivenTransitionBlend,
+				kRivenCommandChangeCard,
+				1, // Argument count
+				2  // Card id
+		};
+
+		// Add the new script to the list
+		RivenTypedScript patchScript;
+		patchScript.type = kCardEnterScript;
+		patchScript.script = _vm->_scriptMan->readScriptFromData(patchData, ARRAYSIZE(patchData));
+		_scripts.push_back(patchScript);
+
+		// Add a black picture to the card's list to be able to use it in the second part of the patch
+		Picture blackPicture;
+		blackPicture.index = 6;
+		blackPicture.id = 117;
+		blackPicture.rect = Common::Rect(608, 392);
+		_pictureList.push_back(blackPicture);
+
+		debugC(kRivenDebugPatches, "Applied invalid card change during screen update (1/2) to card %x", globalId);
+		// The second part of this patch is in the script patches
+	}
+
+	// Apply script patches
 	for (uint i = 0; i < _scripts.size(); i++) {
 		_scripts[i].script->applyCardPatches(_vm, globalId, _scripts[i].type, 0xFFFF);
 	}
-
-	delete inStream;
 }
 
 void RivenCard::enter(bool unkMovies) {
@@ -255,6 +433,7 @@ void RivenCard::loadHotspots(uint16 id) {
 	uint32 globalId = _vm->getStack()->getCardGlobalId(id);
 	for (uint16 i = 0; i < hotspotCount; i++) {
 		_hotspots[i] = new RivenHotspot(_vm, inStream);
+		_hotspots[i]->applyPropertiesPatches(globalId);
 		_hotspots[i]->applyScriptPatches(globalId);
 	}
 
@@ -280,16 +459,20 @@ Common::Array<RivenHotspot *> RivenCard::getHotspots() const {
 	return _hotspots;
 }
 
-RivenHotspot *RivenCard::getHotspotByName(const Common::String &name) const {
+RivenHotspot *RivenCard::getHotspotByName(const Common::String &name, bool optional) const {
 	int16 nameId = _vm->getStack()->getIdFromName(kHotspotNames, name);
 
 	for (uint i = 0; i < _hotspots.size(); i++) {
-		if (_hotspots[i]->getNameId() == nameId) {
+		if (_hotspots[i]->getNameId() == nameId && nameId != -1) {
 			return _hotspots[i];
 		}
 	}
 
-	error("Card %d does not have an hotspot named %s", _id, name.c_str());
+	if (optional) {
+		return nullptr;
+	} else {
+		error("Card %d does not have an hotspot named %s", _id, name.c_str());
+	}
 }
 
 RivenHotspot *RivenCard::getHotspotByBlstId(const uint16 blstId) const {
@@ -598,6 +781,85 @@ void RivenCard::playMovie(uint16 index, bool queue) {
 	}
 }
 
+RivenScriptPtr RivenCard::onKeyAction(RivenKeyAction keyAction) {
+	static const char *forwardNames[] = {
+			"forward", "forward1", "forward2", "forward3",
+			"opendoor", "openhatch", "opentrap", "opengate", "opengrate",
+			"open", "door", "drop", "go", "enterprison", "exit",
+			"forwardleft", "forwardright", nullptr
+	};
+
+	static const char *forwardLeftNames [] = { "forwardleft",              nullptr };
+	static const char *forwardRightNames[] = { "forwardright",             nullptr };
+	static const char *leftNames        [] = { "left",  "afl", "prevpage", nullptr };
+	static const char *rightNames       [] = { "right", "afr", "nextpage", nullptr };
+	static const char *backNames        [] = { "back",                     nullptr };
+	static const char *upNames          [] = { "up",                       nullptr };
+	static const char *downNames        [] = { "down",                     nullptr };
+
+	const char **hotspotNames = nullptr;
+	switch (keyAction) {
+		case kKeyActionMoveForward:
+			hotspotNames = forwardNames;
+			break;
+		case kKeyActionMoveForwardLeft:
+			hotspotNames = forwardLeftNames;
+			break;
+		case kKeyActionMoveForwardRight:
+			hotspotNames = forwardRightNames;
+			break;
+		case kKeyActionMoveLeft:
+			hotspotNames = leftNames;
+			break;
+		case kKeyActionMoveRight:
+			hotspotNames = rightNames;
+			break;
+		case kKeyActionMoveBack:
+			hotspotNames = backNames;
+			break;
+		case kKeyActionLookUp:
+			hotspotNames = upNames;
+			break;
+		case kKeyActionLookDown:
+			hotspotNames = downNames;
+			break;
+		default:
+			break;
+	}
+
+	if (!hotspotNames) {
+		return RivenScriptPtr(new RivenScript());
+	}
+
+	RivenHotspot *directionHotspot = findEnabledHotspotByName(hotspotNames);
+	if (!directionHotspot) {
+		return RivenScriptPtr(new RivenScript());
+	}
+
+	_hoveredHotspot = directionHotspot;
+
+	RivenScriptPtr clickScript = directionHotspot->getScript(kMouseDownScript);
+	if (!clickScript || clickScript->empty()) {
+		clickScript = directionHotspot->getScript(kMouseUpScript);
+	}
+	if (!clickScript || clickScript->empty()) {
+		clickScript = RivenScriptPtr(new RivenScript());
+	}
+
+	return clickScript;
+}
+
+RivenHotspot *RivenCard::findEnabledHotspotByName(const char **names) const {
+	for (uint i = 0; names[i] != nullptr; i++) {
+		RivenHotspot *hotspot = getHotspotByName(names[i], true);
+		if (hotspot && hotspot->isEnabled()) {
+			return hotspot;
+		}
+	}
+
+	return nullptr;
+}
+
 RivenHotspot::RivenHotspot(MohawkEngine_Riven *vm, Common::ReadStream *stream) :
 		_vm(vm) {
 	loadFromStream(stream);
@@ -644,6 +906,38 @@ RivenScriptPtr RivenHotspot::getScript(uint16 scriptType) const {
 	return RivenScriptPtr();
 }
 
+void RivenHotspot::applyPropertiesPatches(uint32 cardGlobalId) {
+	// In Jungle island, one of the bridge hotspots does not have a name
+	// This breaks keyboard navigation. Set the proper name.
+	if (cardGlobalId == 0x214a0 && _blstID == 9) {
+		_nameResource = _vm->getStack()->getIdFromName(kHotspotNames, "forward");
+		debugC(kRivenDebugPatches, "Applied missing hotspot name patch to card %x", cardGlobalId);
+	}
+
+	// In the lab in Book Making island the card showing one of the doors has
+	// two "forward" hotspots. One of them goes backwards. Disable it, and make sure
+	// it cannot be found by the keyboard navigation code.
+	if (cardGlobalId == 0x1fa79 && _blstID == 3) {
+		enable(false);
+		_nameResource = -1;
+		debugC(kRivenDebugPatches, "Applied disable buggy forward hotspot to card %x", cardGlobalId);
+	}
+
+	// On Temple Island, in front of the back door to the rotating room,
+	// change the name of the hotspot to look at the bottom of the door to
+	// "down" instead of "forwardleft". That way the keyboard navigation
+	// does not spoil that you can go below the door.
+	// Also make sure the forward keyboard action plays the try to open
+	// door animation.
+	if (cardGlobalId == 0x87ac && _blstID == 10) {
+		_nameResource = _vm->getStack()->getIdFromName(kHotspotNames, "down");
+		debugC(kRivenDebugPatches, "Applied change hotspot name to 'down' patch to card %x", cardGlobalId);
+	}
+	if (cardGlobalId == 0x87ac && _blstID == 12) {
+		_nameResource = _vm->getStack()->getIdFromName(kHotspotNames, "opendoor");
+		debugC(kRivenDebugPatches, "Applied change hotspot name to 'opendoor' patch to card %x", cardGlobalId);
+	}
+}
 
 void RivenHotspot::applyScriptPatches(uint32 cardGlobalId) {
 	for (uint16 i = 0; i < _scripts.size(); i++) {

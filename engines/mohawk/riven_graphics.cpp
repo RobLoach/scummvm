@@ -198,12 +198,15 @@ public:
 			return false;
 		}
 
-		Common::Rect oldArea = Common::Rect(
-				newArea.right != _rect.right ? _rect.left + newArea.width() : _rect.left,
-				newArea.bottom != _rect.bottom ? _rect.top + newArea.height() : _rect.top,
-				newArea.left != _rect.left ? _rect.right - newArea.width() : _rect.right,
-				newArea.top != _rect.top ? _rect.bottom - newArea.height() : _rect.bottom
-		);
+		Common::Rect oldArea;
+		if (newArea != _rect) {
+			oldArea = Common::Rect(
+					newArea.right != _rect.right ? _rect.left + newArea.width() : _rect.left,
+					newArea.bottom != _rect.bottom ? _rect.top + newArea.height() : _rect.top,
+					newArea.left != _rect.left ? _rect.right - newArea.width() : _rect.right,
+					newArea.top != _rect.top ? _rect.bottom - newArea.height() : _rect.bottom
+			);
+		}
 
 		int oldX = newArea.left != _rect.left ? _rect.left + newArea.width() : _rect.left;
 		int oldY = newArea.top != _rect.top ? _rect.top + newArea.height() : _rect.top;
@@ -546,7 +549,7 @@ void RivenGraphics::runScheduledTransition() {
 		uint32 startTime = _vm->_system->getMillis();
 		uint32 timeElapsed = 0;
 		bool transitionComplete = false;
-		while (timeElapsed < _transitionDuration && !transitionComplete && !_vm->shouldQuit()) {
+		while (timeElapsed < _transitionDuration && !transitionComplete && !_vm->hasGameEnded()) {
 			transitionComplete = effect->drawFrame(timeElapsed);
 
 			_vm->doFrame();
@@ -557,7 +560,7 @@ void RivenGraphics::runScheduledTransition() {
 			effect->drawFrame(_transitionDuration);
 		}
 	} else {
-		for (uint frame = 1; frame <= _transitionFrames && !_vm->shouldQuit(); frame++) {
+		for (uint frame = 1; frame <= _transitionFrames && !_vm->hasGameEnded(); frame++) {
 			effect->drawFrame(frame);
 
 			_vm->doFrame();

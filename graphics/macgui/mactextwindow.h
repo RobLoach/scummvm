@@ -31,10 +31,14 @@ namespace Graphics {
 struct SelectedText {
 	int startX, startY;
 	int endX, endY;
+	int startRow, startCol;
+	int endRow, endCol;
 
 	SelectedText() {
-		startX = startY = 0;
-		endX = endY = 0;
+		startX = startY = -1;
+		endX = endY = -1;
+		startRow = startCol = -1;
+		endRow = endCol = -1;
 	}
 
 	bool needsRender() {
@@ -44,24 +48,71 @@ struct SelectedText {
 
 class MacTextWindow : public MacWindow {
 public:
-	MacTextWindow(MacWindowManager *wm, const MacFont *font, int fgcolor,
-		int bgcolor, int maxWidth, TextAlign textAlignment);
-	~MacTextWindow();
+	MacTextWindow(MacWindowManager *wm, const MacFont *font, int fgcolor, int bgcolor, int maxWidth, TextAlign textAlignment, MacMenu *menu);
+	virtual ~MacTextWindow();
 
+	virtual void resize(int w, int h);
+
+	virtual bool processEvent(Common::Event &event);
+
+	virtual bool draw(ManagedSurface *g, bool forceRedraw = false);
+
+	void setTextWindowFont(const MacFont *macFont);
 	const MacFont *getTextWindowFont();
 
-	void drawText(ManagedSurface *g, int x, int y, int w, int h, int xoff, int yoff);
-	void appendText(Common::String str, int fontId = kMacFontChicago, int fontSize = 12, int fontSlant = kMacFontRegular);
-	void appendText(Common::String str, const MacFont *macFont);
+	void appendText(Common::String str, const MacFont *macFont, bool skipAdd = false);
 	void clearText();
 
-	void setSelection(int selStartX, int selStartY, int selEndX, int selEndY);
+	void undrawCursor();
+
+	const Common::String getInput() { return _inputText; }
+	void clearInput();
+	void appendInput(Common::String str);
+
+	Common::String getSelection(bool formatted = false, bool newlines = true);
+	void clearSelection();
+	Common::String cutSelection();
+	const SelectedText *getSelectedText() { return &_selectedText; }
+
+private:
+	bool isCutAllowed();
+
+	void scroll(int delta);
+
+	void undrawInput();
+	void drawInput();
+	void drawSelection();
+	void updateCursorPos();
+
+	void startMarking(int x, int y);
+	void updateTextSelection(int x, int y);
+
+public:
+	int _cursorX, _cursorY;
+	bool _cursorState;
+
+	bool _cursorDirty;
+	Common::Rect *_cursorRect;
+	bool _cursorOff;
+
+	int _scrollPos;
 
 private:
 	MacText *_mactext;
 	const MacFont *_font;
+	const Font *_fontRef;
 
+	ManagedSurface *_cursorSurface;
+
+	bool _inTextSelection;
 	SelectedText _selectedText;
+
+	int _maxWidth;
+	Common::String _inputText;
+	uint _inputTextHeight;
+	bool _inputIsDirty;
+
+	MacMenu *_menu;
 };
 
 } // End of namespace Graphics

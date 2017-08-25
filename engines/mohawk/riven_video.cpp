@@ -62,6 +62,7 @@ void RivenVideo::load(uint16 id) {
 
 	_id = id;
 	_video = new Video::QuickTimeDecoder();
+	_video->setSoundType(Audio::Mixer::kSFXSoundType);
 	_video->setChunkBeginOffset(_vm->getResourceOffset(ID_TMOV, id));
 	_video->loadStream(_vm->getResource(ID_TMOV, id));
 }
@@ -235,19 +236,19 @@ void RivenVideo::playBlocking(int32 endTime) {
 	}
 
 	bool continuePlaying = true;
-	while (!endOfVideo() && !_vm->shouldQuit() && continuePlaying) {
+	while (!endOfVideo() && !_vm->hasGameEnded() && continuePlaying) {
 		// Draw a frame
 		_vm->doFrame();
 
 		// Handle skipping
-		if (playTillEnd && _vm->getStack()->keyGetPressed() == Common::KEYCODE_ESCAPE) {
+		if (playTillEnd && _vm->getStack()->keyGetAction() == kKeyActionSkip) {
 			continuePlaying = false;
 
 			// Seek to the last frame
 			_video->seek(_video->getDuration().addMsecs(-1));
 
 			_vm->getStack()->mouseForceUp();
-			_vm->getStack()->keyForceUp();
+			_vm->getStack()->keyResetAction();
 		}
 	}
 

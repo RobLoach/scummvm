@@ -271,7 +271,11 @@ reg_t disassemble(EngineState *s, reg32_t pos, const Object *obj, bool printBWTa
 			reg_t addr;
 			addr.setSegment(retval.getSegment());
 			addr.setOffset(offset);
-			debugN("\t%s", s->_segMan->getObjectName(addr));
+			if (getSciVersion() == SCI_VERSION_3 && !s->_segMan->isObject(addr)) {
+				debugN("\t\"%s\"", s->_segMan->derefString(addr));
+			} else {
+				debugN("\t%s", s->_segMan->getObjectName(addr));
+			}
 			debugN(opsize ? "[%02x]" : "[%04x]", offset);
 			break;
 		}
@@ -946,11 +950,21 @@ void debugPropertyAccess(Object *obj, reg_t objp, unsigned int index, reg_t curV
 	const Object *var_container = obj;
 	if (!obj->isClass() && getSciVersion() != SCI_VERSION_3)
 		var_container = segMan->getObject(obj->getSuperClassSelector());
-	if ((index >> 1) >= var_container->getVarCount()) {
-		// TODO: error, warning, debug?
-		return;
+
+	uint16 varSelector;
+	if (getSciVersion() == SCI_VERSION_3) {
+		varSelector = index;
+	} else {
+		index >>= 1;
+
+		if (index >= var_container->getVarCount()) {
+			// TODO: error, warning, debug?
+			return;
+		}
+
+		varSelector = var_container->getVarSelector(index);
 	}
-	uint16 varSelector = var_container->getVarSelector(index >> 1);
+
 	if (g_sci->checkSelectorBreakpoint(breakpointType, objp, varSelector)) {
 		// checkSelectorBreakpoint has already triggered the breakpoint.
 		// We just output the relevant data here.
@@ -1180,10 +1194,22 @@ bool printObject(reg_t pos) {
 		con->debugPrintf("\n");
 	}
 	con->debugPrintf("  -- methods:\n");
-	for (i = 0; i < obj->getMethodCount(); i++) {
-		reg_t fptr = obj->getFunction(i);
-		con->debugPrintf("    [%03x] %s = %04x:%04x\n", obj->getFuncSelector(i), g_sci->getKernel()->getSelectorName(obj->getFuncSelector(i)).c_str(), PRINT_REG(fptr));
-	}
+	Common::Array<Selector> foundMethods;
+	const Object *protoObj = obj;
+	do {
+		for (i = 0; i < protoObj->getMethodCount(); i++) {
+			const Selector selector = protoObj->getFuncSelector(i);
+			if (Common::find(foundMethods.begin(), foundMethods.end(), selector) == foundMethods.end()) {
+				reg_t fptr = protoObj->getFunction(i);
+				con->debugPrintf("    [%03x] ", selector);
+				if (protoObj != obj) {
+					con->debugPrintf("%s::", s->_segMan->getObjectName(protoObj->getPos()));
+				}
+				con->debugPrintf("%s = %04x:%04x\n", g_sci->getKernel()->getSelectorName(selector).c_str(), PRINT_REG(fptr));
+				foundMethods.push_back(selector);
+			}
+		}
+	} while ((protoObj = s->_segMan->getObject(protoObj->getSuperClassSelector())));
 
 	Script *scr = s->_segMan->getScriptIfLoaded(pos.getSegment());
 	if (scr)

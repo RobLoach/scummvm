@@ -20,7 +20,6 @@
  *
  */
 
-#include "common/config-manager.h"
 #include "common/debug.h"
 
 #include "graphics/surface.h"
@@ -34,6 +33,7 @@
 #include "sludge/newfatal.h"
 #include "sludge/objtypes.h"
 #include "sludge/people.h"
+#include "sludge/region.h"
 #include "sludge/statusba.h"
 #include "sludge/sound.h"
 #include "sludge/sludge.h"
@@ -48,33 +48,17 @@ extern VariableStack *noStack;
 
 int dialogValue = 0;
 
-int main_loop(const char *filename) {
+int main_loop(Common::String filename) {
 
 	if (!initSludge(filename)) {
 		return 0;
 	}
 
-	g_sludge->_gfxMan->init();
-
-	registerWindowForFatal();
-
-	g_sludge->_gfxMan->blankAllScreen();
-	if (!initPeople())
-		return fatal("Couldn't initialise people stuff");
-	if (!initFloor())
-		return fatal("Couldn't initialise floor stuff");
-	if (!g_sludge->_objMan->initObjectTypes())
-		return fatal("Couldn't initialise object type stuff");
-	initSpeech();
-	initStatusBar();
-	resetRandW();
-
-	if (!ConfMan.hasKey("mute") || !ConfMan.getBool("mute")) {
-		g_sludge->_soundMan->initSoundStuff();
-	}
+	g_sludge->_gfxMan->initGfx();
 
 	startNewFunctionNum(0, 0, NULL, noStack);
 
+	g_sludge->_evtMan->startGame();
 	g_sludge->_timer.init();
 
 	while (!g_sludge->_evtMan->quit()) {
@@ -88,7 +72,14 @@ int main_loop(const char *filename) {
 		g_sludge->_timer.waitFrame();
 	}
 
-	g_sludge->_soundMan->killSoundStuff();
+	killSludge();
+
+	// Load next game
+	if (!g_sludge->launchNext.empty()) {
+		Common::String name = g_sludge->launchNext;
+		g_sludge->launchNext.clear();
+		main_loop(name);
+	}
 
 	return (0);
 }

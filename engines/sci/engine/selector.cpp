@@ -218,6 +218,14 @@ void Kernel::mapSelectors() {
 	FIND_SELECTOR(setSize);
 	FIND_SELECTOR(displayValue);
 	FIND_SELECTOR2(new_, "new");
+	FIND_SELECTOR(mainCel);
+	FIND_SELECTOR(move);
+	FIND_SELECTOR(eachElementDo);
+	FIND_SELECTOR(physicalBar);
+	FIND_SELECTOR(init);
+	FIND_SELECTOR(scratch);
+	FIND_SELECTOR(num);
+	FIND_SELECTOR(reallyRestore);
 #endif
 }
 

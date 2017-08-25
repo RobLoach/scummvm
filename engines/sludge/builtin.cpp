@@ -20,6 +20,7 @@
  *
  */
 
+#include "common/config-manager.h"
 #include "common/savefile.h"
 
 #include "sludge/allfiles.h"
@@ -47,7 +48,6 @@
 #include "sludge/savedata.h"
 #include "sludge/freeze.h"
 #include "sludge/language.h"
-#include "sludge/thumbnail.h"
 #include "sludge/sludge.h"
 #include "sludge/utf8.h"
 #include "sludge/graphics.h"
@@ -145,7 +145,7 @@ static BuiltReturn sayCore(int numParams, LoadedFunction *fun, bool sayIt) {
 			if (!getValueType(fileNum, SVT_FILE, fun->stack->thisVar))
 				return BR_ERROR;
 			trimStack(fun->stack);
-			// No break; here
+			// fall through
 
 		case 2:
 			newText = getTextFromAnyVar(fun->stack->thisVar);
@@ -283,32 +283,26 @@ builtIn(fileExists) {
 	trimStack(fun->stack);
 	Common::String aaaaa = encodeFilename(g_sludge->loadNow);
 	g_sludge->loadNow.clear();
+
 	if (failSecurityCheck(aaaaa))
 		return BR_ERROR;
-#if 0
-	FILE *fp = fopen(aaaaa, "rb");
-	if (!fp) {
-		char currentDir[1000];
-		if (!getcwd(currentDir, 998)) {
-			debugOut("Can't get current directory.\n");
-		}
 
-		if (chdir(gamePath)) {
-			debugOut("Error: Failed changing to directory %s\n", gamePath);
-		}
-		fp = fopen(aaaaa, "rb");
-		if (chdir(currentDir)) {
-			debugOut("Error: Failed changing to directory %s\n", currentDir);
+	bool exist = false;
+
+	Common::File fd;
+	if (fd.open(aaaaa)) {
+		exist = true;
+		fd.close();
+	} else {
+		Common::InSaveFile *fp = g_system->getSavefileManager()->openForLoading(aaaaa);
+		if (fp) {
+			exist = true;
+			delete fp;
 		}
 	}
-#endif
+
 	// Return value
-	setVariable(fun->reg, SVT_INT, 0/*(fp != NULL)*/);      //TODO:false value
-#if 0
-			if (fp) fclose(fp);
-			delete[] aaaaa;
-			loadNow = NULL;
-#endif
+	setVariable(fun->reg, SVT_INT, exist);
 	return BR_CONTINUE;
 }
 
@@ -977,11 +971,9 @@ builtIn(callEvent) {
 	return BR_CONTINUE;
 }
 
-bool reallyWantToQuit = false;
-
 builtIn(quitGame) {
 	UNUSEDALL
-	reallyWantToQuit = true;
+	g_sludge->_evtMan->quitGame();
 	return BR_CONTINUE;
 }
 
@@ -1265,7 +1257,7 @@ builtIn(setLightMap) {
 				return BR_ERROR;
 			trimStack(fun->stack);
 			g_sludge->_gfxMan->_lightMapMode %= LIGHTMAPMODE_NUM;
-			// No break;
+			// fall through
 
 		case 1:
 			if (fun->stack->thisVar.varType == SVT_FILE) {
@@ -2421,11 +2413,29 @@ builtIn(_rem_launchWith) {
 	UNUSEDALL
 
 	trimStack(fun->stack);
+
+	// To support some windows only games
+	Common::String filename = getTextFromAnyVar(fun->stack->thisVar);
 	trimStack(fun->stack);
+
+	if (filename.hasSuffix(".exe")) {
+		const Common::FSNode gameDataDir(ConfMan.get("path"));
+		Common::FSList files;
+		gameDataDir.getChildren(files, Common::FSNode::kListFilesOnly);
+
+		for (Common::FSList::const_iterator file = files.begin(); file != files.end(); ++file) {
+			Common::String fileName = file->getName();
+			fileName.toLowercase();
+			if (fileName.hasSuffix(".dat") || fileName == "data") {
+				g_sludge->launchNext = file->getName();
+				return BR_CONTINUE;
+			}
+		}
+	}
+
+	g_sludge->launchNext.clear();
 	setVariable(fun->reg, SVT_INT, false);
-
 	return BR_CONTINUE;
-
 }
 
 builtIn(getFramesPerSecond) {
@@ -2448,7 +2458,7 @@ builtIn(showThumbnail) {
 	Common::String aaaaa = getTextFromAnyVar(fun->stack->thisVar);
 	trimStack(fun->stack);
 	Common::String file = encodeFilename(aaaaa);
-	showThumbnail(file, x, y);
+	g_sludge->_gfxMan->showThumbnail(file, x, y);
 	return BR_CONTINUE;
 }
 
@@ -2586,6 +2596,9 @@ BuiltReturn callBuiltIn(int whichFunc, int numParams, LoadedFunction *fun) {
 		}
 
 		if (builtInFunctionArray[whichFunc].func) {
+			debugC(3, kSludgeDebugBuiltin,
+					"Run built-in function %i : %s",
+					whichFunc, (whichFunc < numBIFNames) ? allBIFNames[whichFunc].c_str() : "Unknown");
 			return builtInFunctionArray[whichFunc].func(numParams, fun);
 		}
 	}

@@ -21,7 +21,11 @@
  */
 
 #include "titanic/star_control/camera_mover.h"
-#include "common/textconsole.h"
+#include "titanic/star_control/base_stars.h" // includes class CStarVector
+#include "titanic/star_control/error_code.h"
+#include "titanic/star_control/fmatrix.h" // Also has class FVector
+#include "titanic/support/simple_file.h"
+// Not currently being used: #include "common/textconsole.h"
 
 namespace Titanic {
 
@@ -48,33 +52,38 @@ CCameraMover::~CCameraMover() {
 }
 
 void CCameraMover::copyFrom(const CNavigationInfo *src) {
-	*((CNavigationInfo *)this) = *src;
+	_speed = src->_speed;
+	_unused = src->_speedChangeCtr;
+	_maxSpeed = src->_speedChangeInc;
+	_speedChangeCtr = src->_unused;
+	_speedChangeInc = src->_maxSpeed;
+	_unusedX = src->_unusedX;
+	_unusedY = src->_unusedY;
+	_unusedZ = src->_unusedZ;
 }
 
 void CCameraMover::copyTo(CNavigationInfo *dest) {
-	*dest = *((CNavigationInfo *)this);
+	dest->_speed = _speed;
+	dest->_speedChangeCtr = _unused;
+	dest->_speedChangeInc = _maxSpeed;
+	dest->_unused = _speedChangeCtr;
+	dest->_maxSpeed = _speedChangeInc;
+	dest->_unusedX = _unusedX;
+	dest->_unusedY = _unusedY;
+	dest->_unusedZ = _unusedZ;
 }
 
-void CCameraMover::increaseSpeed() {
+void CCameraMover::increaseForwardSpeed() {
 	if (!isLocked() && _speed < _maxSpeed) {
 		_speedChangeCtr += _speedChangeInc;
-		if (_speedChangeCtr > _speed)
-			_speed -= _speedChangeCtr;
-		else
-			_speed += _speedChangeCtr;
+		_speed += ABS(_speedChangeCtr);
 	}
 }
 
-void CCameraMover::decreaseSpeed() {
-	if (!isLocked()) {
+void CCameraMover::increaseBackwardSpeed() {
+	if (!isLocked() && _speed > -_maxSpeed) {
 		_speedChangeCtr -= _speedChangeInc;
-		if (_speedChangeCtr > _speed)
-			_speed -= _speedChangeCtr;
-		else
-			_speed += _speedChangeCtr;
-
-		if (_speedChangeCtr < 0.0)
-			_speedChangeCtr = 0.0;
+		_speed -= ABS(_speedChangeCtr);
 	}
 }
 

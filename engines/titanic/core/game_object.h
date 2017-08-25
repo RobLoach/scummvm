@@ -329,7 +329,7 @@ protected:
 	/**
 	 * Compare the name of the parent room to the item to a passed string
 	 */
-	int compareRoomNameTo(const CString &name);
+	bool compareRoomNameTo(const CString &name);
 
 	/**
 	 * Gets the first object under the system MailMan
@@ -393,8 +393,9 @@ protected:
 
 	/**
 	 * Play a cutscene
+	 * @returns		True if the cutscene was not interrupted
 	 */
-	void playCutscene(uint startFrame, uint endFrame);
+	bool playCutscene(uint startFrame, uint endFrame);
 
 	/**
 	 * Play a clip randomly from a passed list of names
@@ -608,6 +609,15 @@ public:
 	bool checkPoint(const Point &pt, bool ignoreSurface = false, bool visibleOnly = false);
 
 	/**
+	 * Returns a point that falls within the object. Used for simulating
+	 * mouse clicks for movement when arrow keys are pressed
+	 * @param quadrant	Quadrant (edge) to return point for
+	 * @param pt		Return point
+	 * @returns			True if a point was found
+	 */
+	bool findPoint(Quadrant quadrant, Point &pt);
+
+	/**
 	 * Set the position of the object
 	 */
 	void setPosition(const Point &newPos);
@@ -779,6 +789,11 @@ public:
 	 * Returns the text cursor
 	 */
 	CTextCursor *getTextCursor() const;
+
+	/**
+	 * Get the movement, if any, the cursor represents
+	 */
+	Movement getMovement() const;
 
 	/*--- CGameManager Methods ---*/
 

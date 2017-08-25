@@ -53,10 +53,6 @@ bool hasFatal() {
 	return false;
 }
 
-void registerWindowForFatal() {
-	g_sludge->fatalInfo = "There's an error with this SLUDGE game! If you're designing this game, please turn on verbose error messages in the project manager and recompile. If not, please contact the author saying where and how this problem occured.";
-}
-
 int inFatal(const Common::String &str) {
 	g_sludge->_soundMan->killSoundStuff();
 	error("%s", str.c_str());
@@ -73,7 +69,7 @@ int checkNew(const void *mem) {
 
 void setFatalInfo(const Common::String &userFunc, const Common::String &BIF) {
 	g_sludge->fatalInfo = "Currently in this sub: " + userFunc + "\nCalling: " + BIF;
-	debug(kSludgeDebugFatal, "%s", g_sludge->fatalInfo.c_str());
+	debugC(0, kSludgeDebugFatal, "%s", g_sludge->fatalInfo.c_str());
 }
 
 void setResourceForFatal(int n) {

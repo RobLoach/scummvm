@@ -23,6 +23,8 @@
 #include "titanic/npcs/parrot.h"
 #include "titanic/core/project_item.h"
 #include "titanic/carry/carry.h"
+#include "titanic/carry/chicken.h"
+#include "titanic/game_manager.h"
 
 namespace Titanic {
 
@@ -117,18 +119,11 @@ void CParrot::load(SimpleFile *file) {
 }
 
 bool CParrot::ActMsg(CActMsg *msg) {
-	if (msg->_action == "PistaccioEaten") {
-		CActMsg actMsg("NutsEaten");
-		actMsg.execute("Ear2");
-	} else if (msg->_action == "Chicken") {
+	if (msg->_action == "Chicken") {
 		// Nothing to do
 	} else if (msg->_action == "CarryParrotLeftView") {
-		if (!_takeOff) {
-			_eatingChicken = false;
-			CStatusChangeMsg statusMsg;
-			statusMsg._newStatus = 1;
-			statusMsg.execute("PerchCoreHolder");
-		}
+		if (!_takeOff)
+			setEatingChicken(false);
 	} else if (msg->_action == "StartChickenDrag") {
 		if (_state == PARROT_IN_CAGE) {
 			stopMovie();
@@ -249,22 +244,23 @@ bool CParrot::MovieEndMsg(CMovieEndMsg *msg) {
 			return true;
 
 		} else if (clipExistsByEnd("Lean Over To Chicken", msg->_endFrame)) {
-			// Leaning left out of cage to eat the chicken
-			playClip("Eat Chicken");
+			// WORKAROUND: Do what the original obviously intended but got
+			// wrong.. only flag chicken as eaten if it's still being dragged
+			CTreeItem *dragItem = getGameManager()->_dragItem;
+			CCarry *chicken = dynamic_cast<CCarry *>(dragItem);
+
+			if (chicken)
+				playClip("Eat Chicken");
 			playClip("Eat Chicken 2", MOVIE_NOTIFY_OBJECT);
-			_eatingChicken = true;
 
-			CStatusChangeMsg statusMsg;
-			statusMsg._newStatus = 0;
-			statusMsg.execute("PerchCoreHolder");
-
-			CTrueTalkTriggerActionMsg actionMsg;
-			actionMsg._action = 280266;
-			actionMsg._param2 = 1;
-			actionMsg.execute(this);
-
-			CCarry *chicken = dynamic_cast<CCarry *>(findUnder(getRoot(), "Chicken"));
 			if (chicken) {
+				setEatingChicken(true);
+
+				CTrueTalkTriggerActionMsg actionMsg;
+				actionMsg._action = 280266;
+				actionMsg._param2 = 1;
+				actionMsg.execute(this);
+
 				CActMsg actMsg("Eaten");
 				actMsg.execute(chicken);
 			}
@@ -276,11 +272,7 @@ bool CParrot::MovieEndMsg(CMovieEndMsg *msg) {
 
 	if (clipExistsByEnd("Eat Chicken 2", msg->_endFrame)) {
 		// Parrot has finished eating Chicken
-		_eatingChicken = false;
-
-		CStatusChangeMsg statusMsg;
-		statusMsg._newStatus = 1;
-		statusMsg.execute("PerchCoreHolder");
+		setEatingChicken(false);
 
 		if (_takeOff) {
 			// Perch has been taken, so take off
@@ -583,6 +575,10 @@ bool CParrot::FrameMsg(CFrameMsg *msg) {
 		_npcFlags |= NPCFLAG_MOVING | NPCFLAG_MOVE_START;
 
 		if (_newXc >= xp) {
+			// WORKAROUND: Original did not properly reset the eating chicken
+			// flag when the player turns away from the cage
+			setEatingChicken(false);
+
 			setPosition(Point(_bounds.left + 30, _bounds.top));
 			_npcFlags |= NPCFLAG_MOVE_RIGHT;
 			playClip("Walk Right Intro", MOVIE_NOTIFY_OBJECT);
@@ -598,16 +594,16 @@ bool CParrot::FrameMsg(CFrameMsg *msg) {
 		int &action = triggerMsg._action;
 		switch (triesMsg._condiment) {
 		case 1:
-			action = 280056 + (triesMsg._isHot ? 234 : 0);
+			action = triesMsg._isHot ? 280034 : 280056;
 			break;
 		case 2:
-			action = 280055 + (triesMsg._isHot ? 234 : 0);
+			action = triesMsg._isHot ? 280033 : 280055;
 			break;
 		case 3:
-			action = 280054 + (triesMsg._isHot ? 234 : 0);
+			action = triesMsg._isHot ? 280032 : 280054;
 			break;
 		default:
-			action = 280053 + (triesMsg._isHot ? 213 : 0);
+			action = triesMsg._isHot ? 280266 : 280053;
 			break;
 		}
 
@@ -740,5 +736,11 @@ bool CParrot::TrueTalkNotifySpeechEndedMsg(CTrueTalkNotifySpeechEndedMsg *msg) {
 	return CTrueTalkNPC::TrueTalkNotifySpeechEndedMsg(msg);
 }
 
+void CParrot::setEatingChicken(bool eating) {
+	_eatingChicken = eating;
+	CStatusChangeMsg statusMsg;
+	statusMsg._newStatus = eating ? 0 : 1;
+	statusMsg.execute("PerchCoreHolder");
+}
 
 } // End of namespace Titanic

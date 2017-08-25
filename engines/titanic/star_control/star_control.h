@@ -23,12 +23,13 @@
 #ifndef TITANIC_STAR_CONTROL_H
 #define TITANIC_STAR_CONTROL_H
 
-#include "titanic/core/game_object.h"
+#include "titanic/core/game_object.h" // class SimpleFile
 #include "titanic/star_control/star_field.h"
 #include "titanic/star_control/star_view.h"
-#include "titanic/pet_control/pet_control.h"
 
 namespace Titanic {
+
+class CPetControl;
 
 class CStarControl : public CGameObject {
 	DECLARE_MESSAGE_MAP;
@@ -36,6 +37,7 @@ class CStarControl : public CGameObject {
 	bool MouseMoveMsg(CMouseMoveMsg *msg);
 	bool KeyCharMsg(CKeyCharMsg *msg);
 	bool FrameMsg(CFrameMsg *msg);
+	bool MovementMsg(CMovementMsg *msg);
 private:
 	bool _enabled;
 	CStarField _starField;
@@ -96,6 +98,11 @@ public:
 	 * Called when a star destination is set
 	 */
 	void starDestinationSet();
+
+	/**
+	 * Updates the camerea for the star view
+	 */
+	void updateCamera() { _view.updateCamera(); }
 };
 
 } // End of namespace Titanic

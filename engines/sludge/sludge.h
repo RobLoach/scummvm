@@ -54,7 +54,9 @@ enum {
 	kSludgeDebugDataLoad = 1 << 1,
 	kSludgeDebugStackMachine = 1 << 2,
 	kSludgeDebugBuiltin = 1 << 3,
-	kSludgeDebugGraphics = 1 << 4
+	kSludgeDebugGraphics = 1 << 4,
+	kSludgeDebugZBuffer = 1 << 5,
+	kSludgeDebugSound = 1 << 6
 };
 
 class SludgeEngine: public Engine {
@@ -65,6 +67,7 @@ protected:
 public:
 	// global String variables
 	Common::String launchMe;
+	Common::String launchNext;
 	Common::String loadNow;
 	Common::String gamePath;
 	Common::String bundleFolder;

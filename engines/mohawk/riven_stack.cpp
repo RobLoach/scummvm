@@ -40,7 +40,8 @@ RivenStack::RivenStack(MohawkEngine_Riven *vm, uint16 id) :
 		_vm(vm),
 		_id(id),
 		_mouseIsDown(false),
-		_keyPressed(Common::KEYCODE_INVALID) {
+		_shouldRefreshMouseCursor(false),
+		_keyAction(kKeyActionNone) {
 	removeTimer();
 
 	loadResourceNames();
@@ -200,7 +201,7 @@ void RivenStack::runCredits(uint16 video, uint32 delay) {
 
 	RivenVideo *videoPtr = _vm->_video->getSlot(video);
 
-	while (!_vm->shouldQuit() && _vm->_gfx->getCurCreditsImage() <= 320) {
+	while (!_vm->hasGameEnded() && _vm->_gfx->getCurCreditsImage() <= 320) {
 		if (videoPtr->getCurFrame() >= (int32)videoPtr->getFrameCount() - 1) {
 			if (nextCreditsFrameStart == 0) {
 				// Set us up to start after delay ms
@@ -220,11 +221,7 @@ void RivenStack::runCredits(uint16 video, uint32 delay) {
 		_vm->doFrame();
 	}
 
-	if (_vm->shouldQuit()) {
-		return; // Allow return to launcher
-	}
-
-	_vm->quitGame();
+	_vm->setGameEnded();
 }
 
 void RivenStack::installCardTimer() {
@@ -279,6 +276,10 @@ void RivenStack::mouseForceUp() {
 	_mouseIsDown = false;
 }
 
+void RivenStack::queueMouseCursorRefresh() {
+	_shouldRefreshMouseCursor = true;
+}
+
 void RivenStack::onFrame() {
 	if (!_vm->getCard() || _vm->_scriptMan->hasQueuedScripts()) {
 		return;
@@ -287,6 +288,11 @@ void RivenStack::onFrame() {
 	checkTimer();
 
 	_vm->_gfx->updateEffects();
+
+	if (_shouldRefreshMouseCursor) {
+		_vm->getCard()->onMouseMove(getMousePosition());
+		_shouldRefreshMouseCursor = false;
+	}
 
 	RivenScriptPtr script(new RivenScript());
 	if (_mouseIsDown) {
@@ -299,16 +305,78 @@ void RivenStack::onFrame() {
 	_vm->_scriptMan->runScript(script, true);
 }
 
-Common::KeyCode RivenStack::keyGetPressed() const {
-	return _keyPressed;
+RivenKeyAction RivenStack::keyGetAction() const {
+	return _keyAction;
 }
 
-void RivenStack::keyForceUp() {
-	_keyPressed = Common::KEYCODE_INVALID;
+void RivenStack::keyResetAction() {
+	_keyAction = kKeyActionNone;
 }
 
-void RivenStack::onKeyPressed(const Common::KeyCode keyCode) {
-	_keyPressed = keyCode;
+void RivenStack::onKeyPressed(const Common::KeyState &keyState) {
+	_keyAction = mapKeyStateToKeyAction(keyState);
+
+	if (_vm->getCard() && !_vm->_scriptMan->hasQueuedScripts()) {
+		RivenScriptPtr script = _vm->getCard()->onKeyAction(_keyAction);
+
+		if (!script->empty()) {
+			_vm->_scriptMan->runScript(script, true);
+			keyResetAction();
+		}
+	}
+}
+
+RivenKeyAction RivenStack::mapKeyStateToKeyAction(const Common::KeyState &keyState) {
+	switch (keyState.keycode) {
+		case Common::KEYCODE_ESCAPE:
+			return kKeyActionSkip;
+		case Common::KEYCODE_KP8:
+			if (keyState.flags & Common::KBD_NUM) {
+				break;
+			}
+			// Fallthrough
+		case Common::KEYCODE_UP:
+			return kKeyActionMoveForward;
+		case Common::KEYCODE_KP7:
+			if (keyState.flags & Common::KBD_NUM) {
+				break;
+			}
+			return kKeyActionMoveForwardLeft;
+		case Common::KEYCODE_KP9:
+			if (keyState.flags & Common::KBD_NUM) {
+				break;
+			}
+			return kKeyActionMoveForwardRight;
+		case Common::KEYCODE_KP4:
+			if (keyState.flags & Common::KBD_NUM) {
+				break;
+			}
+			// Fallthrough
+		case Common::KEYCODE_LEFT:
+			return kKeyActionMoveLeft;
+		case Common::KEYCODE_KP6:
+			if (keyState.flags & Common::KBD_NUM) {
+				break;
+			}
+			// Fallthrough
+		case Common::KEYCODE_RIGHT:
+			return kKeyActionMoveRight;
+		case Common::KEYCODE_KP2:
+			if (keyState.flags & Common::KBD_NUM) {
+				break;
+			}
+			// Fallthrough
+		case Common::KEYCODE_DOWN:
+			return kKeyActionMoveBack;
+		case Common::KEYCODE_PAGEUP:
+			return kKeyActionLookUp;
+		case Common::KEYCODE_PAGEDOWN:
+			return kKeyActionLookDown;
+		default:
+			break;
+	}
+
+	return kKeyActionNone;
 }
 
 Common::Point RivenStack::getMousePosition() const {
@@ -348,7 +416,7 @@ void RivenStack::removeTimer() {
 
 bool RivenStack::pageTurn(RivenTransition transition) {
 	// Wait until the previous page turn sound completes
-	while (_vm->_sound->isEffectPlaying() && !_vm->shouldQuit()) {
+	while (_vm->_sound->isEffectPlaying() && !_vm->hasGameEnded()) {
 		if (!mouseIsDown()) {
 			return false;
 		}

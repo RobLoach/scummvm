@@ -20,17 +20,14 @@
  *
  */
 
-#include "titanic/support/screen_manager.h"
-#include "titanic/pet_control/pet_control.h"
 #include "titanic/star_control/star_control.h"
-#include "titanic/star_control/daffine.h"
-#include "titanic/star_control/error_code.h"
-#include "titanic/star_control/fpose.h"
-#include "titanic/star_control/star_camera.h"
-#include "titanic/game_manager.h"
 #include "titanic/core/dont_save_file_item.h"
 #include "titanic/core/project_item.h"
-#include "titanic/core/view_item.h"
+#include "titanic/game_manager.h"
+#include "titanic/pet_control/pet_control.h"
+#include "titanic/star_control/camera_mover.h"
+#include "titanic/star_control/error_code.h" // CErrorCode
+#include "titanic/support/screen_manager.h"
 
 namespace Titanic {
 
@@ -39,17 +36,16 @@ BEGIN_MESSAGE_MAP(CStarControl, CGameObject)
 	ON_MESSAGE(MouseButtonDownMsg)
 	ON_MESSAGE(KeyCharMsg)
 	ON_MESSAGE(FrameMsg)
+	ON_MESSAGE(MovementMsg)
 END_MESSAGE_MAP()
 
 CStarControl::CStarControl() : _enabled(false), _petControl(nullptr),
 		_starRect(20, 10, 620, 350) {
 	CStarCamera::init();
-	DAffine::init();
 }
 
 CStarControl::~CStarControl() {
 	CStarCamera::deinit();
-	DAffine::deinit();
 }
 
 void CStarControl::save(SimpleFile *file, int indent) {
@@ -274,6 +270,13 @@ bool CStarControl::canSetStarDestination() const {
 
 void CStarControl::starDestinationSet() {
 	_view.starDestinationSet();
+}
+
+bool CStarControl::MovementMsg(CMovementMsg *msg) {
+	// The star control view has an unused turn right link hidden
+	// under the star view. For cleanliness, explicitly consume any
+	// movements in the star view so the link is never used
+	return true;
 }
 
 } // End of namespace Titanic

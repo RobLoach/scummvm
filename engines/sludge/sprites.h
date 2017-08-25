@@ -41,15 +41,32 @@ public:
 	byte *b;
 	byte originalRed, originalGreen, originalBlue, total;
 
-	SpritePalette() : pal(0), r(0), g(0), b(0), total(0) {
+	SpritePalette() { init(); }
+
+	~SpritePalette() { kill(); }
+
+	void reset() {
+		kill();
+		init();
+	}
+
+private:
+	void init() {
+		pal = nullptr;
+		r = g = b = nullptr;
+		total = 0;
 		originalRed = originalGreen = originalBlue = 255;
 	}
 
-	~SpritePalette() {
-		delete[] pal;
-		delete[] r;
-		delete[] g;
-		delete[] b;
+	void kill() {
+		if (pal)
+			delete[] pal;
+		if (r)
+			delete[] r;
+		if (g)
+			delete[] g;
+		if (b)
+			delete[] b;
 	}
 };
 
@@ -65,19 +82,20 @@ struct SpriteBank {
 struct SpriteDisplay {
 	int x, y;
 	int width, height;
-	uint32 color;
+	bool freeAfterUse;
 	Graphics::FLIP_FLAGS flip;
 	Graphics::Surface *surface;
 
-	SpriteDisplay(int xpos, int ypos, Graphics::FLIP_FLAGS f, Graphics::Surface *ptr, int w = -1, int h = 1, uint32 c = TS_ARGB(255, 255, 255, 255)) :
-			x(xpos), y(ypos), flip(f), surface(ptr), width(w), height(h), color(c) {
+	SpriteDisplay(int xpos, int ypos, Graphics::FLIP_FLAGS f, Graphics::Surface *ptr, int w = -1, int h = 1, bool free = false) :
+			x(xpos), y(ypos), flip(f), surface(ptr), width(w), height(h), freeAfterUse(free) {
 	}
 };
 
 // All sprites are sorted into different "layers" (up to 16) according to their relative y position to z-buffer zones
+typedef Common::List<SpriteDisplay *> SpriteLayer;
 struct SpriteLayers {
 	int numLayers;
-	Common::List<SpriteDisplay> layer[16];
+	SpriteLayer layer[16];
 };
 
 } // End of namespace Sludge

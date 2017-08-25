@@ -116,6 +116,8 @@ static const char *const selectorNameTable[] = {
 	"get",          // Torin
 	"set",          // Torin
 	"clear",        // Torin
+	"masterVolume", // SCI2 master volume reset
+	"data",         // Phant2
 #endif
 	NULL
 };
@@ -158,7 +160,9 @@ enum ScriptPatcherSelectors {
 	SELECTOR_test,
 	SELECTOR_get,
 	SELECTOR_set,
-	SELECTOR_clear
+	SELECTOR_clear,
+	SELECTOR_masterVolume,
+	SELECTOR_data
 #endif
 };
 
@@ -262,9 +266,69 @@ static const uint16 sci2BenchmarkPatch[] = {
 	PATCH_END
 };
 
+// The init code that runs in many SCI32 games unconditionally resets the music
+// volume, but the game should always use the volume stored in ScummVM.
+// Applies to at least: LSL6hires, MGDX, PQ:SWAT, QFG4
+static const uint16 sci2VolumeResetSignature[] = {
+	SIG_MAGICDWORD,
+	0x38, SIG_SELECTOR16(masterVolume), // pushi masterVolume
+	0x78,                               // push1
+	0x39, SIG_ADDTOOFFSET(+1),          // pushi [default volume]
+	0x81, 0x01,                         // lag 1
+	0x4a, SIG_UINT16(0x06),             // send 6
+	SIG_END
+};
+
+static const uint16 sci2VolumeResetPatch[] = {
+	0x32, PATCH_UINT16(8), // jmp 8 [past volume reset]
+	PATCH_END
+};
+
+// At least Gabriel Knight 1 and Police Quest 4 floppy have a broken Str::strip inside script 64918.
+// The code never passes over the actual string to kStringTrim, so that would not work and also trigger
+// a signature mismatch.
+// Localized version of Police Quest 4 were also affected.
+// Gabriel Knight although affected doesn't seem to ever call the code, so there is no reason to patch it.
+// Police Quest 4 CD got this fixed.
+static const uint16 sci2BrokenStrStripSignature[] = {
+	SIG_MAGICDWORD,
+	0x85, 0x06,                         // lat temp[6]
+	0x31, 0x10,                         // bnt [jump to code that passes 2 parameters]
+	0x38, SIG_UINT16(0x00c2),           // pushi 00c2 (callKernel)
+	0x38, SIG_UINT16(3),                // pushi 03
+	0x39, 0x0e,                         // pushi 0e
+	0x8d, 0x0b,                         // lst temp[0b]
+	0x36,                               // push
+	0x54, SIG_UINT16(0x000a),           // self 0a
+	0x33, 0x0b,                         // jmp to [ret]
+	// 2 parameter code
+	0x38, SIG_UINT16(0x00c2),           // pushi 00c2
+	0x7a,                               // push2
+	0x39, 0x0e,                         // pushi 0e
+	0x8d, 0x0b,                         // lst temp[0b]
+	0x54, SIG_UINT16(0x0008),           // self 08
+	SIG_END
+};
+
+static const uint16 sci2BrokenStrStripPatch[] = {
+	PATCH_ADDTOOFFSET(+2),
+	0x85, 0x06,                         // lat temp[6] (once more]
+	PATCH_ADDTOOFFSET(+3),              // jump over pushi callKernel
+	0x39, 0x04,                         // pushi 04
+	0x39, 0x0e,                         // pushi 0e
+	// Attention: data is 0x14 in PQ4 CD, in floppy it's 0x12
+	0x67, 0x12,                         // pTos data (pass actual data)
+	0x8d, 0x0b,                         // lst temp[0b]
+	0x36,                               // push
+	0x54, PATCH_UINT16(0x000c),         // self 0c
+	0x48,                               // ret
+	PATCH_END
+};
+
+
 // Torin/LSL7-specific version of sci2NumSavesSignature1/2
 // Applies to at least: English CD
-static const uint16 torinNumSavesSignature[] = {
+static const uint16 torinLarry7NumSavesSignature[] = {
 	SIG_MAGICDWORD,
 	0x36,       // push
 	0x35, 0x14, // ldi 20
@@ -272,7 +336,7 @@ static const uint16 torinNumSavesSignature[] = {
 	SIG_END
 };
 
-static const uint16 torinNumSavesPatch[] = {
+static const uint16 torinLarry7NumSavesPatch[] = {
 	PATCH_ADDTOOFFSET(+1), // push
 	0x35, 0x63,            // ldi 99
 	PATCH_END
@@ -2552,24 +2616,20 @@ static const uint16 larry6HiresPatchSetScale[] = {
 // Applies to at least: English CD
 static const uint16 larry6HiresSignatureVolumeReset[] = {
 	SIG_MAGICDWORD,
-	0x38, SIG_UINT16(0x221), // pushi $221 (masterVolume)
-	0x78,                    // push1
-	0x39, 0x0c,              // push $0c
-	0x81, 0x01,              // lag $01
-	0x4a, SIG_UINT16(0x06),  // send $6
-	0x35, 0x0b,              // ldi $0b
-	0xa1, 0xc2,              // sag $c2
+	0x35, 0x0b,                         // ldi $0b
+	0xa1, 0xc2,                         // sag $c2
 	SIG_END
 };
 
 static const uint16 larry6HiresPatchVolumeReset[] = {
-	0x32, PATCH_UINT16(12),  // jmp 12 [past volume changes]
+	0x32, PATCH_UINT16(1),  // jmp 1 [past volume change]
 	PATCH_END
 };
 
 //          script, description,                                      signature                         patch
 static const SciScriptPatcherEntry larry6HiresSignatures[] = {
-	{  true,    71, "disable volume reset on startup",             1, larry6HiresSignatureVolumeReset,  larry6HiresPatchVolumeReset },
+	{  true,    71, "disable volume reset on startup (1/2)",       1, sci2VolumeResetSignature,         sci2VolumeResetPatch },
+	{  true,    71, "disable volume reset on startup (2/2)",       1, larry6HiresSignatureVolumeReset,  larry6HiresPatchVolumeReset },
 	{  true,   270, "fix incorrect setScale call",                 1, larry6HiresSignatureSetScale,     larry6HiresPatchSetScale },
 	{  true, 64908, "disable video benchmarking",                  1, sci2BenchmarkSignature,           sci2BenchmarkPatch },
 	{  true, 64990, "increase number of save games",               1, sci2NumSavesSignature1,           sci2NumSavesPatch1 },
@@ -2725,7 +2785,7 @@ static const SciScriptPatcherEntry larry7Signatures[] = {
 	{  true,   540, "fix make cheese cutscene (priority)",   1, larry7SignatureMakeCheesePriority,  larry7PatchMakeCheesePriority },
 	{  true, 64000, "disable volume reset on startup 1/2",   1, larry7VolumeResetSignature1,        larry7VolumeResetPatch1 },
 	{  true, 64000, "disable volume reset on startup 2/2",   1, larry7VolumeResetSignature2,        larry7VolumeResetPatch2 },
-	{  true, 64866, "increase number of save games",         1, torinNumSavesSignature,             torinNumSavesPatch },
+	{  true, 64866, "increase number of save games",         1, torinLarry7NumSavesSignature,       torinLarry7NumSavesPatch },
 	SCI_SIGNATUREENTRY_TERMINATOR
 };
 
@@ -3568,6 +3628,8 @@ static const uint16 mothergooseHiresPatchHorse[] = {
 
 //          script, description,                                      signature                         patch
 static const SciScriptPatcherEntry mothergooseHiresSignatures[] = {
+	{  true,     0, "disable volume reset on startup (1/2)",       2, sci2VolumeResetSignature,         sci2VolumeResetPatch },
+	{  true,    90, "disable volume reset on startup (2/2)",       1, sci2VolumeResetSignature,         sci2VolumeResetPatch },
 	{  true,   108, "bad logo rendering",                          1, mothergooseHiresSignatureLogo,    mothergooseHiresPatchLogo },
 	{  true,   318, "bad horse z-index",                           1, mothergooseHiresSignatureHorse,   mothergooseHiresPatchHorse },
 	SCI_SIGNATUREENTRY_TERMINATOR
@@ -3715,11 +3777,100 @@ static const uint16 phant2CompSlideDoorsPatch[] = {
 	PATCH_END
 };
 
+// When reading the VERSION file, Phant2 sends a Str object instead of a
+// reference to a string (kernel signature violation), and flips the file handle
+// and size arguments, so the version file data never actually makes it into the
+// game.
+// Applies to at least: Phant2 US English CD
+static const uint16 phant2GetVersionSignature[] = {
+	0x36,                         // push
+	0x35, 0xff,                   // ldi $ff
+	0x1c,                         // ne?
+	0x31, 0x0e,                   // bnt $e
+	0x39, 0x04,                   // pushi 4
+	0x39, 0x05,                   // pushi 5
+	SIG_MAGICDWORD,
+	0x89, 0x1b,                   // lsg $1b
+	0x8d, 0x05,                   // lst 5
+	0x39, 0x09,                   // pushi 9
+	0x43, 0x5d, SIG_UINT16(0x08), // callk FileIO, 8
+	0x7a,                         // push2
+	0x78,                         // push1
+	0x8d, 0x05,                   // lst 5
+	0x43, 0x5d, SIG_UINT16(0x04), // callk FileIO, 4
+	0x35, 0x01,                   // ldi 1
+	0xa1, 0xd8,                   // sag $d8
+	SIG_END
+};
+
+static const uint16 phant2GetVersionPatch[] = {
+	0x39, 0x04,                     // pushi 4
+	0x39, 0x05,                     // pushi 5
+	0x81, 0x1b,                     // lag $1b
+	0x39, PATCH_SELECTOR8(data),    // pushi data
+	0x76,                           // push0
+	0x4a, PATCH_UINT16(4),          // send 4
+	0x36,                           // push
+	0x39, 0x09,                     // pushi 9
+	0x8d, 0x05,                     // lst 5
+	0x43, 0x5d, PATCH_UINT16(0x08), // callk FileIO, 8
+	0x7a,                           // push2
+	0x78,                           // push1
+	0x8d, 0x05,                     // lst 5
+	0x43, 0x5d, PATCH_UINT16(0x04), // callk FileIO, 4
+	0x78,                           // push1
+	0xa9, 0xd8,                     // ssg $d8
+	PATCH_END
+};
+
+// The game uses a spin loop when displaying the success animation of the ratboy
+// puzzle, which causes the mouse to appear unresponsive. Replace the spin loop
+// with a call to ScummVM kWait.
+// Applies to at least: US English
+static const uint16 phant2RatboySignature[] = {
+	0x8d, 0x01,                   // lst 1
+	0x35, 0x1e,                   // ldi $1e
+	0x22,                         // lt?
+	SIG_MAGICDWORD,
+	0x31, 0x17,                   // bnt $17 [0c3d]
+	0x76,                         // push0
+	0x43, 0x79, SIG_UINT16(0x00), // callk GetTime, 0
+	SIG_END
+};
+
+static const uint16 phant2RatboyPatch[] = {
+	0x78,                                     // push1
+	0x35, 0x1e,                               // ldi $1e
+	0x36,                                     // push
+	0x43, kScummVMWaitId, PATCH_UINT16(0x02), // callk Wait, $2
+	0x33, 0x14,                               // jmp [to next outer loop]
+	PATCH_END
+};
+
+// Phant2-specific version of sci2NumSavesSignature1/2
+// Applies to at least: English CD
+static const uint16 phant2NumSavesSignature[] = {
+	SIG_MAGICDWORD,
+	0x8d, 0x01, // lst 1
+	0x35, 0x14, // ldi 20
+	0x1a,       // eq?
+	SIG_END
+};
+
+static const uint16 phant2NumSavesPatch[] = {
+	PATCH_ADDTOOFFSET(+2), // lst 1
+	0x35, 0x63,            // ldi 99
+	PATCH_END
+};
+
 //          script, description,                                      signature                        patch
 static const SciScriptPatcherEntry phantasmagoria2Signatures[] = {
 	{  true,     0, "slow interface fades",                        3, phant2SlowIFadeSignature,      phant2SlowIFadePatch },
+	{  true,     0, "bad arguments to get game version",           1, phant2GetVersionSignature,     phant2GetVersionPatch },
+	{  true,  4081, "non-responsive mouse after ratboy puzzle",    1, phant2RatboySignature,         phant2RatboyPatch },
 	{  true, 63016, "non-responsive mouse during music fades",     1, phant2Wait4FadeSignature,      phant2Wait4FadePatch },
 	{  true, 63019, "non-responsive mouse during computer load",   1, phant2CompSlideDoorsSignature, phant2CompSlideDoorsPatch },
+	{  true, 64990, "increase number of save games",               1, phant2NumSavesSignature,       phant2NumSavesPatch },
 	SCI_SIGNATUREENTRY_TERMINATOR
 };
 
@@ -3941,12 +4092,170 @@ static const SciScriptPatcherEntry pq3Signatures[] = {
 #pragma mark -
 #pragma mark Police Quest 4
 
-//          script, description,                                      signature                         patch
+// In Police Quest 4 inside the Bitty Kitty show (room 315), the player has to first talk with a young woman, show her the police badge, then
+// show her the red shoe. She will tell the player that may "Barbie" knows more.
+// After leaving and entering later (not detailed here), Barbie will be available.
+// Now the player needs to show her the police badge as well and then it goes a bit weird.
+//
+// The player can show her the red shoe immediately, which will work dialog-wise, but points won't be awarded and the corresponding flag will also not get set.
+// Internally the game checks if some regular talking dialog (for Barbie) has been accessed before awarding the points and setting the flags.
+// When the player does not recognize this, the player may get stuck and it will look as if a game breaking glitch has happened.
+//
+// Showing the red shoe to the young woman AND showing it to Barbie is all done using the same script.
+// It works via shoeShoe::changeState.
+//
+// The code in there of state 0 checks first who is currently inside the room using stripper::noun.
+// Afterwards for the young woman it checks local 3 if it's zero or not zero.
+// Local 3 is set, when the player has shown the police badge to the person, that is currently inside the room.
+//
+// For Barbie strangely global 9Ah is checked instead, which then causes those issues.
+//
+// We change the Barbie code to also check local 3, which seems to work out.
+// We can't simply remove the check, otherwise the flag will get set even when the player
+// hasn't shown the badge, which will cause Barbie to not answer the question and the player
+// won't be able to show her the shoe a second time.
+//
+// This of course also happened, when using the original interpreter.
+//
+// Applies to at least: English floppy, German floppy, English CD
+// Responsible method: showShoe::changeState(0) - script 315
+// Fixes bug: #9849
+static const uint16 pq4BittyKittyShowBarieRedShoeSignature[] = {
+	// stripper::noun check is for checking, if police badge was shown
+	SIG_MAGICDWORD,
+	0x89, 0x9a,                         // lsg global[9Ah]
+	0x35, 0x02,                         // ldi 02
+	0x1e,                               // gt?
+	0x30, SIG_UINT16(0x0028),           // bnt [skip 2 points code]
+	0x39, 0x61,                         // pushi 61h (flag)
+	SIG_END
+};
+
+static const uint16 pq4BittyKittyShowBarbieRedShoePatch[] = {
+	0x83, 0x03,                         // lal local[3]
+	0x30, PATCH_UINT16(0x002b),         // bnt [skip 2 points code]
+	0x33, 1,                            // jmp 1 (waste some bytes)
+	PATCH_END
+};
+
+// In Police Quest 4 scripts for room 390 (city hall) use ticks instead of seconds.
+// Ticks are not behaving the same as seconds. Ticks will also go down within game menus including inventory.
+// When getting attacked, the player has almost no time to draw the gun - and even when the player has the gun
+// equipped in advance, afterwards the attacker needs to get cuffed. Which means selecting the cuffs inside
+// the inventory.
+// It's not obvious that this sequence doesn't stop time while inside game menus, which is why the player
+// may think it's a bug when the player is literally instantly attacked and killed after returning from inventory.
+//
+// Another action-sequence right before that uses ::seconds (woman, who attacks ego with a knife).
+//
+// That's why we change all occurrences of ::ticks to ::seconds and also adjust the values accordingly.
+//
+// This is not a perfect solution. The game system will decrease ::seconds by 1 after entering+exiting the game menu,
+// that's why I raised some of the timers for 1 or 2 seconds. A better solution would be to make it so game system
+// won't decrease ticks/seconds after returning from the game menu. That could of course break things, but should be investigated.
+//
+// Applies to at least: English Floppy, German floppy
+// Responsible method: metzAttack::changeState(2) - 120 ticks (player needs to draw gun)
+//                     stickScr::changeState(0) - 180 ticks (player needs to tell enemy to drop gun)
+//                     dropStick::changeState(5) - 120 ticks (player needs to tell enemy to turn around)
+//                     turnMetz::changeState(5) - 600/420 ticks (player needs to cuff Metz)
+//                     all in script 390
+//
+// The code for the CD version was changed quite a bit, the selector for ticks also changed from 0x10 (so opcode-wise it's 0x20) to 0x11 (opcode-wise 0x22),
+// so additional signatures/patches will need to be added for CD version.
+//
+// metzAttack::changeState(2)
+static const uint16 pq4FloppyCityHallDrawGunTimerSignature[] = {
+	SIG_MAGICDWORD,
+	0x4a, SIG_UINT16(0x0008),           // send 08
+	0x32,                               // jmp [ret]
+	SIG_ADDTOOFFSET(+8),                // skip over some code
+	0x35, 0x78,                         // pushi 0078h (120)
+	0x65, 0x20,                         // aTop ticks
+	SIG_END
+};
+static const uint16 pq4FloppyCityHallDrawGunTimerPatch[] = {
+	PATCH_ADDTOOFFSET(12),
+	0x35, 0x05,                         // pushi 4
+	0x65, 0x1c,                         // aTop seconds - raise time from 2 seconds to 4 seconds
+	PATCH_END
+};
+// stickScr::changeState(0)
+static const uint16 pq4FloppyCityHallTellEnemyDropWeaponTimerSignature[] = {
+	SIG_MAGICDWORD,
+	0x34, SIG_UINT16(180),              // pushi 00B4h (180)
+	0x65, 0x20,                         // aTop ticks
+	0x32, SIG_UINT16(0x005e),           // jmp to ret
+	SIG_END
+};
+static const uint16 pq4FloppyCityHallTellEnemyDropWeaponTimerPatch[] = {
+	0x34, PATCH_UINT16(5),              // pushi 5
+	0x65, 0x1c,                         // aTop seconds - raise time from 3 seconds to 5 seconds
+	PATCH_END
+};
+// dropStick::changeState(5)
+static const uint16 pq4FloppyCityHallTellEnemyTurnAroundTimerSignature[] = {
+	SIG_MAGICDWORD,
+	0x4a, SIG_UINT16(0x0004),           // send 04
+	0x35, 0x78,                         // pushi 0078h (120)
+	0x65, 0x20,                         // aTop ticks
+	SIG_END
+};
+static const uint16 pq4FloppyCityHallTellEnemyTurnAroundTimerPatch[] = {
+	PATCH_ADDTOOFFSET(+3),
+	0x35, 0x03,                         // pushi 3
+	0x65, 0x1c,                         // aTop seconds - raise time from 2 seconds to 3 seconds
+	PATCH_END
+};
+// turnMetz::changeState(5)
+static const uint16 pq4FloppyCityHallCuffEnemyTimerSignature[] = {
+	SIG_MAGICDWORD,
+	0x34, SIG_UINT16(600),              // pushi 258h (600)
+	0x65, 0x20,                         // aTop ticks
+	SIG_ADDTOOFFSET(+3),
+	0x34, SIG_UINT16(420),              // pushi 1A4h (420)
+	0x65, 0x20,                         // aTop ticks
+	SIG_END
+};
+static const uint16 pq4FloppyCityHallCuffEnemyTimerPatch[] = {
+	0x34, PATCH_UINT16(10),             // pushi 10
+	0x65, 0x1c,                         // aTop seconds - time is 10 seconds
+	PATCH_ADDTOOFFSET(+3),
+	0x34, SIG_UINT16(7),                // pushi 7
+	0x65, 0x1c,                         // aTop seconds - time is 7 seconds
+	PATCH_END
+};
+
+// Right at the end in room 755, the last action sequence is also using ticks instead of seconds.
+// For details, read the description of city hall action sequence issues right above this.
+//
+// Applies to at least: English Floppy, German floppy, English CD
+// Responsible method: comeInLast::changeState(11) - 300 ticks (player needs to use item) - in script 755
+static const uint16 pq4LastActionHeroTimerSignature[] = {
+	SIG_MAGICDWORD,
+	0x34, SIG_UINT16(300),              // pushi 012Ch (300)
+	0x65, SIG_ADDTOOFFSET(+1),          // aTop ticks (20h for floppy, 22h for CD)
+	SIG_END
+};
+static const uint16 pq4LastActionHeroTimerPatch[] = {
+	0x34, PATCH_UINT16(5),                    // pushi 5
+	0x65, PATCH_GETORIGINALBYTEADJUST(4, -4), // aTop seconds - 5 seconds
+	PATCH_END
+};
+
+//          script, description,                                          signature                                           patch
 static const SciScriptPatcherEntry pq4Signatures[] = {
-	{  true, 64908, "disable video benchmarking",                  1, sci2BenchmarkSignature,           sci2BenchmarkPatch },
-	{  true, 64990, "increase number of save games",               1, sci2NumSavesSignature1,           sci2NumSavesPatch1 },
-	{  true, 64990, "increase number of save games",               1, sci2NumSavesSignature2,           sci2NumSavesPatch2 },
-	{  true, 64990, "disable change directory button",             1, sci2ChangeDirSignature,           sci2ChangeDirPatch },
+	{  true,   315, "show barbie the red shoe points fix",             1, pq4BittyKittyShowBarieRedShoeSignature,             pq4BittyKittyShowBarbieRedShoePatch },
+	{  true,   390, "floppy: city hall: draw gun timer",               1, pq4FloppyCityHallDrawGunTimerSignature,             pq4FloppyCityHallDrawGunTimerPatch },
+	{  true,   390, "floppy: city hall: tell enemy drop weapon timer", 1, pq4FloppyCityHallTellEnemyDropWeaponTimerSignature, pq4FloppyCityHallTellEnemyDropWeaponTimerPatch },
+	{  true,   390, "floppy: city hall: tell enemy turn around timer", 1, pq4FloppyCityHallTellEnemyTurnAroundTimerSignature, pq4FloppyCityHallTellEnemyTurnAroundTimerPatch },
+	{  true,   390, "floppy: city hall: cuff enemy timer",             1, pq4FloppyCityHallCuffEnemyTimerSignature,           pq4FloppyCityHallCuffEnemyTimerPatch },
+	{  true,   755, "last action sequence timer",                      1, pq4LastActionHeroTimerSignature,                    pq4LastActionHeroTimerPatch },
+	{  true, 64918, "Str::strip fix for floppy version",               1, sci2BrokenStrStripSignature,                        sci2BrokenStrStripPatch },
+	{  true, 64908, "disable video benchmarking",                      1, sci2BenchmarkSignature,                             sci2BenchmarkPatch },
+	{  true, 64990, "increase number of save games",                   1, sci2NumSavesSignature1,                             sci2NumSavesPatch1 },
+	{  true, 64990, "increase number of save games",                   1, sci2NumSavesSignature2,                             sci2NumSavesPatch2 },
+	{  true, 64990, "disable change directory button",                 1, sci2ChangeDirSignature,                             sci2ChangeDirPatch },
 	SCI_SIGNATUREENTRY_TERMINATOR
 };
 
@@ -3959,10 +4268,10 @@ static const SciScriptPatcherEntry pq4Signatures[] = {
 // Applies to at least: English CD
 static const uint16 pqSwatSignatureVolumeReset1[] = {
 	SIG_MAGICDWORD,
-	0x38, SIG_UINT16(0x21a), // pushi $21a (masterVolume)
-	0x78,                    // push1
-	0x39, 0x7f,              // push $7f
-	0x54, SIG_UINT16(0x06),  // self 6
+	0x38, SIG_SELECTOR16(masterVolume), // pushi masterVolume
+	0x78,                               // push1
+	0x39, 0x7f,                         // push $7f
+	0x54, SIG_UINT16(0x06),             // self 6
 	SIG_END
 };
 
@@ -3971,26 +4280,10 @@ static const uint16 pqSwatPatchVolumeReset1[] = {
 	PATCH_END
 };
 
-// pqInitCode::doit
-static const uint16 pqSwatSignatureVolumeReset2[] = {
-	SIG_MAGICDWORD,
-	0x38, SIG_UINT16(0x21a), // pushi $21a (masterVolume)
-	0x78,                    // push1
-	0x39, 0x0f,              // pushi $f
-	0x81, 0x01,              // lag 1
-	0x4a, SIG_UINT16(0x06),  // send 6
-	SIG_END
-};
-
-static const uint16 pqSwatPatchVolumeReset2[] = {
-	0x32, PATCH_UINT16(8), // jmp 8 [past volume reset]
-	PATCH_END
-};
-
 //          script, description,                                      signature                         patch
 static const SciScriptPatcherEntry pqSwatSignatures[] = {
-	{  true,     0, "disable volume reset on startup",             1, pqSwatSignatureVolumeReset1,       pqSwatPatchVolumeReset1 },
-	{  true,     1, "disable volume reset on startup",             1, pqSwatSignatureVolumeReset2,       pqSwatPatchVolumeReset2 },
+	{  true,     0, "disable volume reset on startup (1/2)",       1, pqSwatSignatureVolumeReset1,       pqSwatPatchVolumeReset1 },
+	{  true,     1, "disable volume reset on startup (2/2)",       1, sci2VolumeResetSignature,          sci2VolumeResetPatch },
 	SCI_SIGNATUREENTRY_TERMINATOR
 };
 
@@ -4966,46 +5259,15 @@ static const SciScriptPatcherEntry qfg3Signatures[] = {
 #pragma mark -
 #pragma mark Quest for Glory 4
 
-// The init code that runs when QFG4 starts up unconditionally resets the
-// master music volume to 15, but the game should always use the volume stored
-// in ScummVM.
-// Applies to at least: English floppy
-static const uint16 qfg4SignatureVolumeReset[] = {
-	SIG_MAGICDWORD,
-	0x38, SIG_UINT16(0x215), // pushi $215 (masterVolume)
-	0x78,                    // push1
-	0x39, 0x0f,              // pushi $f
-	0x81, 0x01,              // lag 1 (Glory object)
-	0x4a, SIG_UINT16(0x06),  // send 6
-	SIG_END
-};
-
-// Same as above, but with a different masterVolume selector.
-// Applies to at least: English CD
-static const uint16 qfg4CDSignatureVolumeReset[] = {
-	SIG_MAGICDWORD,
-	0x38, SIG_UINT16(0x217), // pushi $217 (masterVolume)
-	0x78,                    // push1
-	0x39, 0x0f,              // pushi $f
-	0x81, 0x01,              // lag 1 (Glory object)
-	0x4a, SIG_UINT16(0x06),  // send 6
-	SIG_END
-};
-
-static const uint16 qfg4PatchVolumeReset[] = {
-	0x32, PATCH_UINT16(8),  // jmp 8 [past volume changes]
-	PATCH_END
-};
-
 // The trap init code incorrectly creates an int array for string data.
 // Applies to at least: English CD
 static const uint16 qfg4SignatureTrapArrayType[] = {
-	0x38, SIG_UINT16(0x92), // pushi $92 (new)
-	0x78,                   // push1
-	0x38, SIG_UINT16(0x80), // pushi $80 (128)
+	0x38, SIG_SELECTOR16(new), // pushi new
+	0x78,                      // push1
+	0x38, SIG_UINT16(0x80),    // pushi $80 (128)
 	SIG_MAGICDWORD,
-	0x51, 0x0b,             // class $b (IntArray)
-	0x4a, SIG_UINT16(0x06), // send 6
+	0x51, 0x0b,                // class $b (IntArray)
+	0x4a, SIG_UINT16(0x06),    // send 6
 	SIG_END
 };
 
@@ -5040,8 +5302,7 @@ static const uint16 qfg4BenchmarkPatch[] = {
 
 //          script, description,                                      signature                         patch
 static const SciScriptPatcherEntry qfg4Signatures[] = {
-	{  true,     1, "disable volume reset on startup (floppy)",    1, qfg4SignatureVolumeReset,         qfg4PatchVolumeReset },
-	{  true,     1, "disable volume reset on startup (CD)",        1, qfg4CDSignatureVolumeReset,       qfg4PatchVolumeReset },
+	{  true,     1, "disable volume reset on startup",             1, sci2VolumeResetSignature,         sci2VolumeResetPatch },
 	{  true,     1, "disable video benchmarking",                  1, qfg4BenchmarkSignature,           qfg4BenchmarkPatch },
 	{  true,    83, "fix incorrect array type",                    1, qfg4SignatureTrapArrayType,       qfg4PatchTrapArrayType },
 	{  true, 64990, "increase number of save games",               1, sci2NumSavesSignature1,           sci2NumSavesPatch1 },
@@ -5998,7 +6259,7 @@ static const SciScriptPatcherEntry torinSignatures[] = {
 	{  true, 20700, "fix bad heap in PointSoft release",           1, torinPointSoft20700HeapSignature,  torinPointSoft20700HeapPatch },
 	{  true, 64000, "disable volume reset on startup 1/2",         1, torinVolumeResetSignature1,        torinVolumeResetPatch1 },
 	{  true, 64000, "disable volume reset on startup 2/2",         1, torinVolumeResetSignature2,        torinVolumeResetPatch2 },
-	{  true, 64866, "increase number of save games",               1, torinNumSavesSignature,            torinNumSavesPatch },
+	{  true, 64866, "increase number of save games",               1, torinLarry7NumSavesSignature,      torinLarry7NumSavesPatch },
 	SCI_SIGNATUREENTRY_TERMINATOR
 };
 

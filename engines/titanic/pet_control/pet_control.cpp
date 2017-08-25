@@ -58,6 +58,10 @@ CPetControl::CPetControl() : CGameObject(),
 }
 
 void CPetControl::save(SimpleFile *file, int indent) {
+	// Ensure a remote target name is set if there is one
+	if (_remoteTargetName.empty() && _remoteTarget)
+		_remoteTargetName = _remoteTarget->getName();
+
 	file->writeNumberLine(0, indent);
 	file->writeNumberLine(_currentArea, indent);
 	file->writeQuotedLine(_activeNPCName, indent);
@@ -82,15 +86,15 @@ void CPetControl::load(SimpleFile *file) {
 	CGameObject::load(file);
 }
 
-void CPetControl::setup() {
-	_conversations.setup(this);
-	_rooms.setup(this);
-	_remote.setup(this);
-	_inventory.setup(this);
-	_starfield.setup(this);
-	_realLife.setup(this);
-	_translation.setup(this);
-	_frame.setup(this);
+void CPetControl::reset() {
+	_conversations.reset();
+	_rooms.reset();
+	_remote.reset();
+	_inventory.reset();
+	_starfield.reset();
+	_realLife.reset();
+	_translation.reset();
+	_frame.reset();
 }
 
 bool CPetControl::isValid() {
@@ -331,7 +335,22 @@ bool CPetControl::KeyCharMsg(CKeyCharMsg *msg) {
 		return false;
 
 	makeDirty();
-	return _sections[_currentArea]->KeyCharMsg(msg);
+	bool result = _sections[_currentArea]->KeyCharMsg(msg);
+
+	if (!result) {
+		switch (msg->_key) {
+		case Common::KEYCODE_TAB:
+			if (isAreaUnlocked()) {
+				setArea(PET_INVENTORY);
+				result = true;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+
+	return result;
 }
 
 bool CPetControl::VirtualKeyCharMsg(CVirtualKeyCharMsg *msg) {
@@ -344,11 +363,11 @@ bool CPetControl::VirtualKeyCharMsg(CVirtualKeyCharMsg *msg) {
 		switch (msg->_keyState.keycode) {
 		case Common::KEYCODE_F1:
 			result = true;
-			setArea(PET_INVENTORY);
+			setArea(PET_CONVERSATION);
 			break;
 		case Common::KEYCODE_F2:
+			setArea(PET_INVENTORY);
 			result = true;
-			setArea(PET_CONVERSATION);
 			break;
 		case Common::KEYCODE_F3:
 			result = true;

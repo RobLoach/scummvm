@@ -50,6 +50,7 @@ public:
 	void handleSoundLists(); // to produce the same effects as end of stream call back functions
 
 	// GENERAL...
+	void init();
 	bool initSoundStuff();
 	void killSoundStuff();
 
@@ -83,9 +84,9 @@ private:
 
 	struct SoundThing {
 		Audio::SoundHandle handle;
-		int fileLoaded, vol;    //Used for sounds only. (sound saving/loading)
-		bool looping;      		//Used for sounds only. (sound saving/loading)
-		bool inSoundList;
+		int fileLoaded, vol;	//Used for wav/ogg sounds only. (sound saving/loading)
+		bool looping;			//Used for wav/ogg sounds only. (sound saving/loading)
+		bool inSoundList;		//Used for wav/ogg sounds only
 	};
 	typedef Common::List<SoundList *> SoundListHandles;
 
@@ -97,9 +98,7 @@ private:
 	bool _isHandlingSoundList;
 
 	SoundThing *_soundCache;
-	#if 0
 	SoundThing *_modCache;
-	#endif
 
 	int _defVol;
 	int _defSoundVol;
