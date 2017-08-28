@@ -21,6 +21,7 @@
  */
 
 #include "titanic/sound/sound_manager.h"
+#include "titanic/events.h"
 #include "titanic/titanic.h"
 
 namespace Titanic {
@@ -33,13 +34,13 @@ CSoundManager::CSoundManager() : _musicPercent(75.0), _speechPercent(75.0),
 	_masterPercent(75.0), _parrotPercent(75.0), _handleCtr(1) {
 }
 
-uint CSoundManager::getModeVolume(int mode) {
+uint CSoundManager::getModeVolume(VolumeMode mode) {
 	switch (mode) {
-	case -1:
+	case VOL_NORMAL:
 		return (uint)_masterPercent;
-	case -2:
+	case VOL_QUIET:
 		return (uint)(_masterPercent * 30 / 100);
-	case -3:
+	case VOL_VERY_QUIET:
 		return (uint)(_masterPercent * 15 / 100);
 	default:
 		return 0;
@@ -120,7 +121,7 @@ QSoundManager::~QSoundManager() {
 }
 
 CWaveFile *QSoundManager::loadSound(const CString &name) {
-	CWaveFile *waveFile = new CWaveFile();
+	CWaveFile *waveFile = new CWaveFile(_mixer);
 
 	// Try to load the specified sound
 	if (!waveFile->loadSound(name)) {
@@ -132,7 +133,7 @@ CWaveFile *QSoundManager::loadSound(const CString &name) {
 }
 
 CWaveFile *QSoundManager::loadSpeech(CDialogueFile *dialogueFile, int speechId) {
-	CWaveFile *waveFile = new CWaveFile();
+	CWaveFile *waveFile = new CWaveFile(_mixer);
 
 	// Try to load the specified sound
 	if (!waveFile->loadSpeech(dialogueFile, speechId)) {
@@ -144,10 +145,22 @@ CWaveFile *QSoundManager::loadSpeech(CDialogueFile *dialogueFile, int speechId) 
 }
 
 CWaveFile *QSoundManager::loadMusic(const CString &name) {
-	CWaveFile *waveFile = new CWaveFile();
+	CWaveFile *waveFile = new CWaveFile(_mixer);
 
 	// Try to load the specified sound
 	if (!waveFile->loadMusic(name)) {
+		delete waveFile;
+		return nullptr;
+	}
+
+	return waveFile;
+}
+
+CWaveFile *QSoundManager::loadMusic(CAudioBuffer *buffer, DisposeAfterUse::Flag disposeAfterUse) {
+	CWaveFile *waveFile = new CWaveFile(_mixer);
+
+	// Try to load the specified audio buffer
+	if (!waveFile->loadMusic(buffer, disposeAfterUse)) {
 		delete waveFile;
 		return nullptr;
 	}
@@ -276,7 +289,7 @@ void QSoundManager::setVolume(int handle, uint volume, uint seconds) {
 			_channelsVolume[slot._channel] = volume;
 			updateVolume(slot._channel, seconds * 1000);
 
-			if (volume) {
+			if (!volume) {
 				uint ticks = g_vm->_events->getTicksCount() + seconds * 1000;
 				if (!slot._ticks || ticks >= slot._ticks)
 					slot._ticks = ticks;
@@ -311,7 +324,9 @@ void QSoundManager::setPolarPosition(int handle, double range, double azimuth, d
 	}
 }
 
-bool QSoundManager::isActive(int handle) const {
+bool QSoundManager::isActive(int handle) {
+	resetChannel(10);
+
 	for (uint idx = 0; idx < _slots.size(); ++idx) {
 		if (_slots[idx]._handle == handle)
 			return true;
@@ -320,7 +335,7 @@ bool QSoundManager::isActive(int handle) const {
 	return false;
 }
 
-bool QSoundManager::isActive(const CWaveFile *waveFile) const {
+bool QSoundManager::isActive(const CWaveFile *waveFile) {
 	return _sounds.contains(waveFile);
 }
 
@@ -441,7 +456,7 @@ void QSoundManager::updateVolume(int channel, uint panRate) {
 	case 3:
 	case 4:
 	case 5:
-		volume = (24525 * volume) / 100;
+		volume = (75 * volume) / 100;
 		break;
 	case 6:
 	case 7:

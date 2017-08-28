@@ -50,6 +50,7 @@ int SuccUBusScript::chooseResponse(const TTroomScript *roomScript, const TTsente
 	case MKTAG('S', 'L', 'O', 'W'):
 	case MKTAG('T', 'H', 'R', 'T'):
 		dialogueId = 70021;
+		break;
 
 	case MKTAG('S', 'U', 'C', '1'):
 		dialogueId = getDialogueId(230009);
@@ -85,7 +86,7 @@ int SuccUBusScript::process(const TTroomScript *roomScript, const TTsentence *se
 
 	int currState = getState();
 	if (currState) {
-		int currMode = sentence->_field2C;
+		int currMode = sentence->_category;
 		bool modeFlag1 = currMode == 11 || currMode == 13;
 		bool modeFlag2 = currMode == 12;
 		setState(0);
@@ -160,7 +161,7 @@ int SuccUBusScript::process(const TTroomScript *roomScript, const TTsentence *se
 
 	if (processEntries(&_entries, _entryCount, roomScript, sentence) != 2) {
 		uint tagId = g_vm->_trueTalkManager->_quotes.find(sentence->_normalizedLine.c_str());
-		if (tagId && chooseResponse(roomScript, sentence, tagId) != 2) {
+		if (!tagId || chooseResponse(roomScript, sentence, tagId) != 2) {
 			addResponse(getDialogueId(230030));
 			applyResponse();
 		}
@@ -178,8 +179,7 @@ ScriptChangedResult SuccUBusScript::scriptChanged(const TTroomScript *roomScript
 	if (id >= 230000 && id <= 230245) {
 		addResponse(getDialogueId(id));
 		applyResponse();
-	}
-	else if (id >= 70000 && id <= 70243) {
+	} else if (id >= 70000 && id <= 70243) {
 		addResponse(id);
 		applyResponse();
 	}

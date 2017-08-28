@@ -21,6 +21,7 @@
  */
 
 #include "titanic/true_talk/title_engine.h"
+#include "titanic/support/files_manager.h"
 #include "titanic/titanic.h"
 
 namespace Titanic {
@@ -40,7 +41,8 @@ void CTitleEngine::setup(int val1, int val2) {
 
 /*------------------------------------------------------------------------*/
 
-STtitleEngine::STtitleEngine(): CTitleEngine(), _responseP(nullptr) {
+STtitleEngine::STtitleEngine(): CTitleEngine(),
+		_responseP(nullptr), _stream(nullptr) {
 }
 
 STtitleEngine::~STtitleEngine() {

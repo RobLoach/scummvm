@@ -28,6 +28,7 @@
 #include "backends/graphics/opengl/pipelines/shader.h"
 #include "backends/graphics/opengl/shader.h"
 
+#include "common/array.h"
 #include "common/textconsole.h"
 #include "common/translation.h"
 #include "common/algorithm.h"
@@ -43,6 +44,10 @@
 #include "graphics/font.h"
 #endif
 
+#ifdef USE_PNG
+#include "image/png.h"
+#endif
+
 namespace OpenGL {
 
 OpenGLGraphicsManager::OpenGLGraphicsManager()
@@ -55,7 +60,7 @@ OpenGLGraphicsManager::OpenGLGraphicsManager()
       _cursorX(0), _cursorY(0), _cursorDisplayX(0),_cursorDisplayY(0), _cursorHotspotX(0), _cursorHotspotY(0),
       _cursorHotspotXScaled(0), _cursorHotspotYScaled(0), _cursorWidthScaled(0), _cursorHeightScaled(0),
       _cursorKeyColor(0), _cursorVisible(false), _cursorDontScale(false), _cursorPaletteEnabled(false),
-      _forceRedraw(false), _scissorOverride(3)
+      _forceRedraw(false)
 #ifdef USE_OSD
       , _osdMessageChangeRequest(false), _osdMessageAlpha(0), _osdMessageFadeStartTime(0), _osdMessageSurface(nullptr),
       _osdIconSurface(nullptr)
@@ -82,6 +87,7 @@ bool OpenGLGraphicsManager::hasFeature(OSystem::Feature f) {
 	switch (f) {
 	case OSystem::kFeatureAspectRatioCorrection:
 	case OSystem::kFeatureCursorPalette:
+	case OSystem::kFeatureFilteringMode:
 		return true;
 
 	case OSystem::kFeatureOverlaySupportsAlpha:
@@ -99,6 +105,20 @@ void OpenGLGraphicsManager::setFeatureState(OSystem::Feature f, bool enable) {
 		_currentState.aspectRatioCorrection = enable;
 		break;
 
+	case OSystem::kFeatureFilteringMode:
+		assert(_transactionMode != kTransactionNone);
+		_currentState.filtering = enable;
+
+		if (_gameScreen) {
+			_gameScreen->enableLinearFiltering(enable);
+		}
+
+		if (_cursor) {
+			_cursor->enableLinearFiltering(enable);
+		}
+
+		break;
+
 	case OSystem::kFeatureCursorPalette:
 		_cursorPaletteEnabled = enable;
 		updateCursorPalette();
@@ -114,6 +134,9 @@ bool OpenGLGraphicsManager::getFeatureState(OSystem::Feature f) {
 	case OSystem::kFeatureAspectRatioCorrection:
 		return _currentState.aspectRatioCorrection;
 
+	case OSystem::kFeatureFilteringMode:
+		return _currentState.filtering;
+
 	case OSystem::kFeatureCursorPalette:
 		return _cursorPaletteEnabled;
 
@@ -125,8 +148,7 @@ bool OpenGLGraphicsManager::getFeatureState(OSystem::Feature f) {
 namespace {
 
 const OSystem::GraphicsMode glGraphicsModes[] = {
-	{ "opengl_linear",  _s("OpenGL"),                GFX_LINEAR  },
-	{ "opengl_nearest", _s("OpenGL (No filtering)"), GFX_NEAREST },
+	{ "opengl",  _s("OpenGL"),                GFX_OPENGL  },
 	{ nullptr, nullptr, 0 }
 };
 
@@ -137,25 +159,15 @@ const OSystem::GraphicsMode *OpenGLGraphicsManager::getSupportedGraphicsModes() 
 }
 
 int OpenGLGraphicsManager::getDefaultGraphicsMode() const {
-	return GFX_LINEAR;
+	return GFX_OPENGL;
 }
 
 bool OpenGLGraphicsManager::setGraphicsMode(int mode) {
 	assert(_transactionMode != kTransactionNone);
 
 	switch (mode) {
-	case GFX_LINEAR:
-	case GFX_NEAREST:
+	case GFX_OPENGL:
 		_currentState.graphicsMode = mode;
-
-		if (_gameScreen) {
-			_gameScreen->enableLinearFiltering(mode == GFX_LINEAR);
-		}
-
-		if (_cursor) {
-			_cursor->enableLinearFiltering(mode == GFX_LINEAR);
-		}
-
 		return true;
 
 	default:
@@ -250,6 +262,10 @@ OSystem::TransactionError OpenGLGraphicsManager::endGFXTransaction() {
 						transactionError |= OSystem::kTransactionModeSwitchFailed;
 					}
 
+					if (_oldState.filtering != _currentState.filtering) {
+						transactionError |= OSystem::kTransactionFilteringFailed;
+					}
+
 					// Roll back to the old state.
 					_currentState = _oldState;
 					_transactionMode = kTransactionRollback;
@@ -286,7 +302,7 @@ OSystem::TransactionError OpenGLGraphicsManager::endGFXTransaction() {
 		}
 
 		_gameScreen->allocate(_currentState.gameWidth, _currentState.gameHeight);
-		_gameScreen->enableLinearFiltering(_currentState.graphicsMode == GFX_LINEAR);
+		_gameScreen->enableLinearFiltering(_currentState.filtering);
 		// We fill the screen to all black or index 0 for CLUT8.
 #ifdef USE_RGB_COLOR
 		if (_currentState.gameFormat.bytesPerPixel == 1) {
@@ -365,11 +381,8 @@ void OpenGLGraphicsManager::updateScreen() {
 	}
 
 #ifdef USE_OSD
-	{
-		Common::StackLock lock(_osdMutex);
-		if (_osdMessageChangeRequest) {
-			osdMessageUpdateSurface();
-		}
+	if (_osdMessageChangeRequest) {
+		osdMessageUpdateSurface();
 	}
 
 	if (_osdIconSurface) {
@@ -392,24 +405,19 @@ void OpenGLGraphicsManager::updateScreen() {
 
 	// Update changes to textures.
 	_gameScreen->updateGLTexture();
-	if (_cursor) {
+	if (_cursorVisible && _cursor) {
 		_cursor->updateGLTexture();
 	}
 	_overlay->updateGLTexture();
 
 	// Clear the screen buffer.
-	if (_scissorOverride && !_overlayVisible) {
-		// In certain cases we need to assure that the whole screen area is
-		// cleared. For example, when switching from overlay visible to
-		// invisible, we need to assure that all contents are cleared to
-		// properly remove all overlay contents.
-		_backBuffer.enableScissorTest(false);
-		GL_CALL(glClear(GL_COLOR_BUFFER_BIT));
-		_backBuffer.enableScissorTest(true);
+	GL_CALL(glClear(GL_COLOR_BUFFER_BIT));
 
-		--_scissorOverride;
-	} else {
-		GL_CALL(glClear(GL_COLOR_BUFFER_BIT));
+	if (!_overlayVisible) {
+		// The scissor test is enabled to:
+		// - Clip the cursor to the game screen
+		// - Clip the game screen when the shake offset is non-zero
+		_backBuffer.enableScissorTest(true);
 	}
 
 	const GLfloat shakeOffset = _gameScreenShakeOffset * (GLfloat)_displayHeight / _gameScreen->getHeight();
@@ -432,6 +440,10 @@ void OpenGLGraphicsManager::updateScreen() {
 		                         _cursorDisplayX - _cursorHotspotXScaled,
 		                         _cursorDisplayY - _cursorHotspotYScaled + cursorOffset,
 		                         _cursorWidthScaled, _cursorHeightScaled);
+	}
+
+	if (!_overlayVisible) {
+		_backBuffer.enableScissorTest(false);
 	}
 
 #ifdef USE_OSD
@@ -515,9 +527,6 @@ void OpenGLGraphicsManager::showOverlay() {
 	_overlayVisible = true;
 	_forceRedraw = true;
 
-	// Allow drawing inside full screen area.
-	_backBuffer.enableScissorTest(false);
-
 	// Update cursor position.
 	setMousePosition(_cursorX, _cursorY);
 }
@@ -525,10 +534,6 @@ void OpenGLGraphicsManager::showOverlay() {
 void OpenGLGraphicsManager::hideOverlay() {
 	_overlayVisible = false;
 	_forceRedraw = true;
-
-	// Limit drawing to screen area.
-	_backBuffer.enableScissorTest(true);
-	_scissorOverride = 3;
 
 	// Update cursor position.
 	setMousePosition(_cursorX, _cursorY);
@@ -660,7 +665,7 @@ void OpenGLGraphicsManager::setMouseCursor(const void *buf, uint w, uint h, int 
 		}
 		_cursor = createSurface(textureFormat, true);
 		assert(_cursor);
-		_cursor->enableLinearFiltering(_currentState.graphicsMode == GFX_LINEAR);
+		_cursor->enableLinearFiltering(_currentState.filtering);
 	}
 
 	_cursorKeyColor = keycolor;
@@ -730,11 +735,6 @@ void OpenGLGraphicsManager::setCursorPalette(const byte *colors, uint start, uin
 
 void OpenGLGraphicsManager::displayMessageOnOSD(const char *msg) {
 #ifdef USE_OSD
-	// HACK: Actually no client code should use graphics functions from
-	// another thread. But the MT-32 emulator and network synchronization still do,
-	// thus we need to make sure this doesn't happen while a updateScreen call is done.
-	Common::StackLock lock(_osdMutex);
-
 	_osdMessageChangeRequest = true;
 
 	_osdMessageNextData = msg;
@@ -951,14 +951,8 @@ void OpenGLGraphicsManager::notifyContextCreate(const Graphics::PixelFormat &def
 	_backBuffer.setClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 	// Setup alpha blend (for overlay and cursor).
 	_backBuffer.enableBlend(true);
-	// Setup scissor state accordingly.
-	_backBuffer.enableScissorTest(!_overlayVisible);
 
 	g_context.getActivePipeline()->setFramebuffer(&_backBuffer);
-
-	// Clear the whole screen for the first three frames to assure any
-	// leftovers are cleared.
-	_scissorOverride = 3;
 
 	// We use a "pack" alignment (when reading from textures) to 4 here,
 	// since the only place where we really use it is the BMP screenshot
@@ -1236,14 +1230,12 @@ void OpenGLGraphicsManager::recalculateDisplayArea() {
 	_displayY = (_outputScreenHeight - _displayHeight) / 2;
 
 	// Setup drawing limitation for game graphics.
-	// This invovles some trickery because OpenGL's viewport coordinate system
+	// This involves some trickery because OpenGL's viewport coordinate system
 	// is upside down compared to ours.
 	_backBuffer.setScissorBox(_displayX,
 	                          _outputScreenHeight - _displayHeight - _displayY,
 	                          _displayWidth,
 	                          _displayHeight);
-	// Clear the whole screen for the first three frames to remove leftovers.
-	_scissorOverride = 3;
 
 	// Update the cursor position to adjust for new display area.
 	setMousePosition(_cursorX, _cursorY);
@@ -1297,7 +1289,7 @@ const Graphics::Font *OpenGLGraphicsManager::getFontOSD() {
 }
 #endif
 
-void OpenGLGraphicsManager::saveScreenshot(const Common::String &filename) const {
+bool OpenGLGraphicsManager::saveScreenshot(const Common::String &filename) const {
 	const uint width  = _outputScreenWidth;
 	const uint height = _outputScreenHeight;
 
@@ -1306,30 +1298,35 @@ void OpenGLGraphicsManager::saveScreenshot(const Common::String &filename) const
 	// Since we use a 3 byte per pixel mode, we can use width % 4 here, since
 	// it is equal to 4 - (width * 3) % 4. (4 - (width * Bpp) % 4, is the
 	// usual way of computing the padding bytes required).
+	// GL_PACK_ALIGNMENT is 4, so this line padding is required for PNG too
 	const uint linePaddingSize = width % 4;
 	const uint lineSize        = width * 3 + linePaddingSize;
 
-	// Allocate memory for screenshot
-	uint8 *pixels = new uint8[lineSize * height];
+	Common::DumpFile out;
+	if (!out.open(filename)) {
+		return false;
+	}
 
-	// Get pixel data from OpenGL buffer
-	GL_CALL(glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels));
+	Common::Array<uint8> pixels;
+	pixels.resize(lineSize * height);
+	GL_CALL(glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, &pixels.front()));
 
+#ifdef USE_PNG
+	const Graphics::PixelFormat format(3, 8, 8, 8, 0, 16, 8, 0, 0);
+	Graphics::Surface data;
+	data.init(width, height, lineSize, &pixels.front(), format);
+	return Image::writePNG(out, data, true);
+#else
 	// BMP stores as BGR. Since we can't assume that GL_BGR is supported we
 	// will swap the components from the RGB we read to BGR on our own.
 	for (uint y = height; y-- > 0;) {
-		uint8 *line = pixels + y * lineSize;
+		uint8 *line = &pixels.front() + y * lineSize;
 
 		for (uint x = width; x > 0; --x, line += 3) {
 			SWAP(line[0], line[2]);
 		}
 	}
 
-	// Open file
-	Common::DumpFile out;
-	out.open(filename);
-
-	// Write BMP header
 	out.writeByte('B');
 	out.writeByte('M');
 	out.writeUint32LE(height * lineSize + 54);
@@ -1346,12 +1343,10 @@ void OpenGLGraphicsManager::saveScreenshot(const Common::String &filename) const
 	out.writeUint32LE(0);
 	out.writeUint32LE(0);
 	out.writeUint32LE(0);
+	out.write(&pixels.front(), pixels.size());
 
-	// Write pixel data to BMP
-	out.write(pixels, lineSize * height);
-
-	// Free allocated memory
-	delete[] pixels;
+	return true;
+#endif
 }
 
 } // End of namespace OpenGL

@@ -196,13 +196,13 @@ int DoorbotScript::process(const TTroomScript *roomScript, const TTsentence *sen
 		return setResponse(getDialogueId(220113));
 	}
 
-	if (sentence->_field2C == 6 && sentence->contains("why not")) {
+	if (sentence->_category == 6 && sentence->contains("why not")) {
 		return setResponse(11871, 8);
 	}
 
 	currState = getState();
 	if (currState) {
-		int sentMode = sentence->_field2C;
+		int sentMode = sentence->_category;
 		bool flag1 = sentMode == 11 || sentMode == 13;
 		bool flag2 = sentMode == 12;
 
@@ -259,9 +259,9 @@ int DoorbotScript::process(const TTroomScript *roomScript, const TTsentence *sen
 			break;
 
 		case 16: {
-			TTtreeResult treeResult;
+			TTtreeResult treeResult[32];
 			if (g_vm->_trueTalkManager->_quotesTree.search(sentence->_normalizedLine.c_str(),
-					TREE_3, &treeResult, 0, nullptr) != -1)
+					TREE_3, &treeResult[0], 0, nullptr) != -1)
 				return setResponse(getDialogueId(221380), 0);
 			break;
 		}
@@ -475,7 +475,7 @@ int DoorbotScript::process(const TTroomScript *roomScript, const TTsentence *sen
 			|| defaultProcess(roomScript, sentence))
 		return 2;
 
-	switch (sentence->_field2C) {
+	switch (sentence->_category) {
 	case 11:
 		if (getRandomNumber(100) > 90)
 			return setResponse(10839, 42);
@@ -775,6 +775,7 @@ int DoorbotScript::doSentenceEntry(int val1, const int *srcIdP, const TTroomScri
 	case 5:
 		if (getValue(1) == 3)
 			return 1;
+		break;
 	case 6:
 		if (getRoom54(132))
 			return 1;

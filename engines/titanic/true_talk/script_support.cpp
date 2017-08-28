@@ -21,6 +21,7 @@
  */
 
 #include "titanic/true_talk/script_support.h"
+#include "titanic/support/files_manager.h"
 #include "titanic/titanic.h"
 
 namespace Titanic {
@@ -38,7 +39,7 @@ int TTnpcScriptResponse::size() const {
 
 TTscriptRange::TTscriptRange(uint id, const Common::Array<uint> &values,
 		bool isRandom, bool isSequential) :
-		_id(id), _nextP(nullptr) {
+		_id(id), _nextP(nullptr), _priorIndex(0) {
 	_mode = SF_NONE;
 	if (isRandom)
 		_mode = SF_RANDOM;
@@ -57,7 +58,7 @@ bool TTsentenceEntry::load(Common::SeekableReadStream *s) {
 		return false;
 
 	_field0 = s->readUint32LE();
-	_field4 = s->readUint32LE();
+	_category = s->readUint32LE();
 	_string8 = readStringFromStream(s);
 	_fieldC = s->readUint32LE();
 	_string10 = readStringFromStream(s);

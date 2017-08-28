@@ -25,7 +25,7 @@
 
 #include "titanic/pet_control/pet_glyphs.h"
 #include "titanic/pet_control/pet_gfx_element.h"
-#include "titanic/pet_control/pet_text.h"
+#include "titanic/gfx/text_control.h"
 #include "titanic/pet_control/pet_slider.h"
 
 namespace Titanic {
@@ -35,14 +35,14 @@ class CPetRealLife;
 class CPetSound : public CPetGlyph {
 private:
 	CPetGfxElement _element;
-	CPetSlider _masterVolume;
-	CPetSlider _musicVolume;
-	CPetSlider _parrotVolume;
-	CPetSlider _speechVolume;
-	CPetText _textMasterVolume;
-	CPetText _textMusicVolume;
-	CPetText _textParrotVolume;
-	CPetText _textSpeechVolume;
+	CPetSoundSlider _masterVolume;
+	CPetSoundSlider _musicVolume;
+	CPetSoundSlider _parrotVolume;
+	CPetSoundSlider _speechVolume;
+	CTextControl _textMasterVolume;
+	CTextControl _textMusicVolume;
+	CTextControl _textParrotVolume;
+	CTextControl _textSpeechVolume;
 	CPetSlider *_draggingSlider;
 	int _draggingSliderNum;
 private:
@@ -96,7 +96,7 @@ public:
 	/**
 	 * Returns the tooltip text for when the glyph is selected
 	 */
-	virtual void getTooltip(CPetText *text);
+	virtual void getTooltip(CTextControl *text);
 };
 
 } // End of namespace Titanic

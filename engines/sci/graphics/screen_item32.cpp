@@ -22,6 +22,7 @@
 
 #include "sci/console.h"
 #include "sci/resource.h"
+#include "sci/engine/features.h"
 #include "sci/engine/kernel.h"
 #include "sci/engine/selector.h"
 #include "sci/engine/state.h"
@@ -34,8 +35,10 @@ namespace Sci {
 #pragma mark ScreenItem
 
 uint16 ScreenItem::_nextObjectId = 20000;
+uint32 ScreenItem::_nextCreationId = 0;
 
 ScreenItem::ScreenItem(const reg_t object) :
+_creationId(_nextCreationId++),
 _celObj(nullptr),
 _object(object),
 _pictureId(-1),
@@ -51,6 +54,7 @@ _drawBlackLines(false) {
 }
 
 ScreenItem::ScreenItem(const reg_t plane, const CelInfo32 &celInfo) :
+_creationId(_nextCreationId++),
 _plane(plane),
 _useInsetRect(false),
 _z(0),
@@ -67,6 +71,7 @@ _mirrorX(false),
 _drawBlackLines(false) {}
 
 ScreenItem::ScreenItem(const reg_t plane, const CelInfo32 &celInfo, const Common::Rect &rect) :
+_creationId(_nextCreationId++),
 _plane(plane),
 _useInsetRect(false),
 _z(0),
@@ -87,6 +92,7 @@ _drawBlackLines(false) {
 }
 
 ScreenItem::ScreenItem(const reg_t plane, const CelInfo32 &celInfo, const Common::Point &position, const ScaleInfo &scaleInfo) :
+_creationId(_nextCreationId++),
 _plane(plane),
 _scale(scaleInfo),
 _useInsetRect(false),
@@ -104,6 +110,7 @@ _mirrorX(false),
 _drawBlackLines(false) {}
 
 ScreenItem::ScreenItem(const ScreenItem &other) :
+_creationId(other._creationId),
 _plane(other._plane),
 _scale(other._scale),
 _useInsetRect(other._useInsetRect),
@@ -124,13 +131,17 @@ void ScreenItem::operator=(const ScreenItem &other) {
 	// to clear `_celObj` here; instead, it unconditionally set `_celInfo`,
 	// didn't clear `_celObj`, and did hacky stuff in `kIsOnMe` to avoid
 	// testing a mismatched `_celObj`. See `GfxFrameout::kernelIsOnMe` for
-	// more detail.
-	if (_celInfo != other._celInfo) {
+	// more detail. kCelTypeMem types are unconditionally invalidated because
+	// the properties of a CelObjMem can "change" when a game deletes a bitmap
+	// and then creates a new one that reuses the old bitmap's offset in
+	// BitmapTable (as happens in the LSL7 About screen when hovering names).
+	if (_celInfo.type == kCelTypeMem || _celInfo != other._celInfo) {
 		_celInfo = other._celInfo;
 		delete _celObj;
 		_celObj = nullptr;
 	}
 
+	_creationId = other._creationId;
 	_screenRect = other._screenRect;
 	_mirrorX = other._mirrorX;
 	_useInsetRect = other._useInsetRect;
@@ -148,6 +159,7 @@ ScreenItem::~ScreenItem() {
 
 void ScreenItem::init() {
 	_nextObjectId = 20000;
+	_nextCreationId = 0;
 }
 
 void ScreenItem::setFromObject(SegManager *segMan, const reg_t object, const bool updateCel, const bool updateBitmap) {
@@ -169,14 +181,14 @@ void ScreenItem::setFromObject(SegManager *segMan, const reg_t object, const boo
 			// single location
 			Resource *view = g_sci->getResMan()->findResource(ResourceId(kResourceTypeView, _celInfo.resourceId), false);
 			if (!view) {
-				error("Failed to load resource %d", _celInfo.resourceId);
+				error("Failed to load %s", _celInfo.toString().c_str());
 			}
 
 			// NOTE: +2 because the header size field itself is excluded from
 			// the header size in the data
-			const uint16 headerSize = READ_SCI11ENDIAN_UINT16(view->data) + 2;
-			const uint8 loopCount = view->data[2];
-			const uint8 loopSize = view->data[12];
+			const uint16 headerSize = view->getUint16SEAt(0) + 2;
+			const uint8 loopCount = view->getUint8At(2);
+			const uint8 loopSize = view->getUint8At(12);
 
 			// loopNo is set to be an unsigned integer in SSCI, so if it's a
 			// negative value, it'll be fixed accordingly
@@ -186,10 +198,10 @@ void ScreenItem::setFromObject(SegManager *segMan, const reg_t object, const boo
 				writeSelectorValue(segMan, object, SELECTOR(loop), maxLoopNo);
 			}
 
-			byte *loopData = view->data + headerSize + (_celInfo.loopNo * loopSize);
+			SciSpan<const byte> loopData = view->subspan(headerSize + (_celInfo.loopNo * loopSize));
 			const int8 seekEntry = loopData[0];
 			if (seekEntry != -1) {
-				loopData = view->data + headerSize + (seekEntry * loopSize);
+				loopData = view->subspan(headerSize + (seekEntry * loopSize));
 			}
 
 			// celNo is set to be an unsigned integer in SSCI, so if it's a
@@ -203,15 +215,13 @@ void ScreenItem::setFromObject(SegManager *segMan, const reg_t object, const boo
 		}
 	}
 
-	if (updateBitmap) {
-		const reg_t bitmap = readSelector(segMan, object, SELECTOR(bitmap));
-		if (!bitmap.isNull()) {
-			_celInfo.bitmap = bitmap;
-			_celInfo.type = kCelTypeMem;
-		} else {
-			_celInfo.bitmap = NULL_REG;
-			_celInfo.type = kCelTypeView;
-		}
+	const reg_t bitmap = readSelector(segMan, object, SELECTOR(bitmap));
+	if (updateBitmap && !bitmap.isNull()) {
+		_celInfo.bitmap = bitmap;
+		_celInfo.type = kCelTypeMem;
+	} else {
+		_celInfo.bitmap = NULL_REG;
+		_celInfo.type = kCelTypeView;
 	}
 
 	if (updateCel || updateBitmap) {
@@ -227,17 +237,29 @@ void ScreenItem::setFromObject(SegManager *segMan, const reg_t object, const boo
 		writeSelectorValue(segMan, object, SELECTOR(priority), _position.y);
 	}
 
-	_z = readSelectorValue(segMan, object, SELECTOR(z));
+	_z = (int16)readSelectorValue(segMan, object, SELECTOR(z));
 	_position.y -= _z;
 
-	if (readSelectorValue(segMan, object, SELECTOR(useInsetRect))) {
-		_useInsetRect = true;
-		_insetRect.left = readSelectorValue(segMan, object, SELECTOR(inLeft));
-		_insetRect.top = readSelectorValue(segMan, object, SELECTOR(inTop));
-		_insetRect.right = readSelectorValue(segMan, object, SELECTOR(inRight)) + 1;
-		_insetRect.bottom = readSelectorValue(segMan, object, SELECTOR(inBottom)) + 1;
+	if (g_sci->_features->usesAlternateSelectors()) {
+		if (readSelectorValue(segMan, object, SELECTOR(seenRect))) {
+			_useInsetRect = true;
+			_insetRect.left = readSelectorValue(segMan, object, SELECTOR(left));
+			_insetRect.top = readSelectorValue(segMan, object, SELECTOR(top));
+			_insetRect.right = readSelectorValue(segMan, object, SELECTOR(right)) + 1;
+			_insetRect.bottom = readSelectorValue(segMan, object, SELECTOR(bottom)) + 1;
+		} else {
+			_useInsetRect = false;
+		}
 	} else {
-		_useInsetRect = false;
+		if (readSelectorValue(segMan, object, SELECTOR(useInsetRect))) {
+			_useInsetRect = true;
+			_insetRect.left = readSelectorValue(segMan, object, SELECTOR(inLeft));
+			_insetRect.top = readSelectorValue(segMan, object, SELECTOR(inTop));
+			_insetRect.right = readSelectorValue(segMan, object, SELECTOR(inRight)) + 1;
+			_insetRect.bottom = readSelectorValue(segMan, object, SELECTOR(inBottom)) + 1;
+		} else {
+			_useInsetRect = false;
+		}
 	}
 
 	segMan->getObject(object)->clearInfoSelectorFlag(kInfoFlagViewVisible);
@@ -263,33 +285,30 @@ void ScreenItem::calcRects(const Plane &plane) {
 	}
 
 	Ratio scaleX, scaleY;
-
-	if (_scale.signal & kScaleSignalDoScaling32) {
-		if (_scale.signal & kScaleSignalUseVanishingPoint) {
-			int num = _scale.max * (_position.y - plane._vanishingPoint.y) / (scriptWidth - plane._vanishingPoint.y);
-			scaleX = Ratio(num, 128);
-			scaleY = Ratio(num, 128);
-		} else {
-			scaleX = Ratio(_scale.x, 128);
-			scaleY = Ratio(_scale.y, 128);
-		}
+	if (_scale.signal == kScaleSignalManual) {
+		scaleX = Ratio(_scale.x, 128);
+		scaleY = Ratio(_scale.y, 128);
+	} else if (_scale.signal == kScaleSignalVanishingPoint) {
+		int num = _scale.max * (_position.y - plane._vanishingPoint.y) / (scriptWidth - plane._vanishingPoint.y);
+		scaleX = Ratio(num, 128);
+		scaleY = Ratio(num, 128);
 	}
 
 	if (scaleX.getNumerator() && scaleY.getNumerator()) {
 		_screenItemRect = _insetRect;
 
-		const Ratio celToScreenX(screenWidth, celObj._scaledWidth);
-		const Ratio celToScreenY(screenHeight, celObj._scaledHeight);
+		const Ratio celToScreenX(screenWidth, celObj._xResolution);
+		const Ratio celToScreenY(screenHeight, celObj._yResolution);
 
 		// Cel may use a coordinate system that is not the same size as the
 		// script coordinate system (usually this means high-resolution
 		// pictures with low-resolution scripts)
-		if (celObj._scaledWidth != kLowResX || celObj._scaledHeight != kLowResY) {
+		if (celObj._xResolution != kLowResX || celObj._yResolution != kLowResY) {
 			// high resolution coordinates
 
 			if (_useInsetRect) {
-				const Ratio scriptToCelX(celObj._scaledWidth, scriptWidth);
-				const Ratio scriptToCelY(celObj._scaledHeight, scriptHeight);
+				const Ratio scriptToCelX(celObj._xResolution, scriptWidth);
+				const Ratio scriptToCelY(celObj._yResolution, scriptHeight);
 				mulru(_screenItemRect, scriptToCelX, scriptToCelY, 0);
 
 				if (_screenItemRect.intersects(celRect)) {
@@ -299,11 +318,11 @@ void ScreenItem::calcRects(const Plane &plane) {
 				}
 			}
 
-			int displaceX = celObj._displace.x;
-			int displaceY = celObj._displace.y;
+			int originX = celObj._origin.x;
+			int originY = celObj._origin.y;
 
 			if (_mirrorX != celObj._mirrorX && _celInfo.type != kCelTypePic) {
-				displaceX = celObj._width - celObj._displace.x - 1;
+				originX = celObj._width - celObj._origin.x - 1;
 			}
 
 			if (!scaleX.isOne() || !scaleY.isOne()) {
@@ -331,13 +350,13 @@ void ScreenItem::calcRects(const Plane &plane) {
 					}
 				}
 
-				displaceX = (displaceX * scaleX).toInt();
-				displaceY = (displaceY * scaleY).toInt();
+				originX = (originX * scaleX).toInt();
+				originY = (originY * scaleY).toInt();
 			}
 
 			mulinc(_screenItemRect, celToScreenX, celToScreenY);
-			displaceX = (displaceX * celToScreenX).toInt();
-			displaceY = (displaceY * celToScreenY).toInt();
+			originX = (originX * celToScreenX).toInt();
+			originY = (originY * celToScreenY).toInt();
 
 			const Ratio scriptToScreenX = Ratio(screenWidth, scriptWidth);
 			const Ratio scriptToScreenY = Ratio(screenHeight, scriptHeight);
@@ -346,8 +365,8 @@ void ScreenItem::calcRects(const Plane &plane) {
 				_scaledPosition.x = _position.x;
 				_scaledPosition.y = _position.y;
 			} else {
-				_scaledPosition.x = (_position.x * scriptToScreenX).toInt() - displaceX;
-				_scaledPosition.y = (_position.y * scriptToScreenY).toInt() - displaceY;
+				_scaledPosition.x = (_position.x * scriptToScreenX).toInt() - originX;
+				_scaledPosition.y = (_position.y * scriptToScreenY).toInt() - originY;
 			}
 
 			_screenItemRect.translate(_scaledPosition.x, _scaledPosition.y);
@@ -365,7 +384,7 @@ void ScreenItem::calcRects(const Plane &plane) {
 				if (celObjPic == nullptr) {
 					error("Expected a CelObjPic");
 				}
-				temp.translate((celObjPic->_relativePosition.x * scriptToScreenX).toInt() - displaceX, 0);
+				temp.translate((celObjPic->_relativePosition.x * scriptToScreenX).toInt() - originX, 0);
 
 				// TODO: This is weird.
 				int deltaX = plane._planeRect.width() - temp.right - 1 - temp.left;
@@ -383,9 +402,9 @@ void ScreenItem::calcRects(const Plane &plane) {
 		} else {
 			// low resolution coordinates
 
-			int displaceX = celObj._displace.x;
+			int originX = celObj._origin.x;
 			if (_mirrorX != celObj._mirrorX && _celInfo.type != kCelTypePic) {
-				displaceX = celObj._width - celObj._displace.x - 1;
+				originX = celObj._width - celObj._origin.x - 1;
 			}
 
 			if (!scaleX.isOne() || !scaleY.isOne()) {
@@ -397,8 +416,8 @@ void ScreenItem::calcRects(const Plane &plane) {
 				_screenItemRect.bottom -= 1;
 			}
 
-			_scaledPosition.x = _position.x - (displaceX * scaleX).toInt();
-			_scaledPosition.y = _position.y - (celObj._displace.y * scaleY).toInt();
+			_scaledPosition.x = _position.x - (originX * scaleX).toInt();
+			_scaledPosition.y = _position.y - (celObj._origin.y * scaleY).toInt();
 			_screenItemRect.translate(_scaledPosition.x, _scaledPosition.y);
 
 			if (_mirrorX != celObj._mirrorX && _celInfo.type == kCelTypePic) {
@@ -413,7 +432,7 @@ void ScreenItem::calcRects(const Plane &plane) {
 				if (celObjPic == nullptr) {
 					error("Expected a CelObjPic");
 				}
-				temp.translate(celObjPic->_relativePosition.x - (displaceX * scaleX).toInt(), celObjPic->_relativePosition.y - (celObj._displace.y * scaleY).toInt());
+				temp.translate(celObjPic->_relativePosition.x - (originX * scaleX).toInt(), celObjPic->_relativePosition.y - (celObj._origin.y * scaleY).toInt());
 
 				// TODO: This is weird.
 				int deltaX = plane._gameRect.width() - temp.right - 1 - temp.left;
@@ -426,7 +445,7 @@ void ScreenItem::calcRects(const Plane &plane) {
 			_scaledPosition.y += plane._gameRect.top;
 			_screenItemRect.translate(plane._gameRect.left, plane._gameRect.top);
 
-			if (celObj._scaledWidth != screenWidth || celObj._scaledHeight != screenHeight) {
+			if (celObj._xResolution != screenWidth || celObj._yResolution != screenHeight) {
 				mulru(_scaledPosition, celToScreenX, celToScreenY);
 				mulru(_screenItemRect, celToScreenX, celToScreenY, 1);
 			}
@@ -437,7 +456,11 @@ void ScreenItem::calcRects(const Plane &plane) {
 
 		_screenRect = _screenItemRect;
 
-		if (_screenRect.intersects(plane._screenRect)) {
+		// PQ4CD creates screen items with invalid rects; SSCI does not care
+		// about this, but `Common::Rect::clip` does, so we need to check
+		// whether or not the rect is actually valid before clipping and only
+		// clip valid rects
+		if (_screenRect.intersects(plane._screenRect) && _screenRect.isValidRect()) {
 			_screenRect.clip(plane._screenRect);
 		} else {
 			_screenRect.right = 0;
@@ -479,10 +502,18 @@ CelObj &ScreenItem::getCelObj() const {
 }
 
 void ScreenItem::printDebugInfo(Console *con) const {
-	con->debugPrintf("%04x:%04x (%s), prio %d, x %d, y %d, z: %d, scaledX: %d, scaledY: %d flags: %d\n",
-		_object.getSegment(), _object.getOffset(),
-		g_sci->getEngineState()->_segMan->getObjectName(_object),
+	const char *name;
+	if (_object.isNumber()) {
+		name = "-scummvm-";
+	} else {
+		name = g_sci->getEngineState()->_segMan->getObjectName(_object);
+	}
+
+	con->debugPrintf("%04x:%04x (%s), prio %d, ins %u, x %d, y %d, z: %d, scaledX: %d, scaledY: %d flags: %d\n",
+		PRINT_REG(_object),
+		name,
 		_priority,
+		_creationId,
 		_position.x,
 		_position.y,
 		_z,
@@ -495,36 +526,14 @@ void ScreenItem::printDebugInfo(Console *con) const {
 		con->debugPrintf("    inset rect: (%d, %d, %d, %d)\n", PRINT_RECT(_insetRect));
 	}
 
-	Common::String celType;
-	switch (_celInfo.type) {
-		case kCelTypePic:
-			celType = "pic";
-			break;
-		case kCelTypeView:
-			celType = "view";
-			break;
-		case kCelTypeColor:
-			celType = "color";
-			break;
-		case kCelTypeMem:
-			celType = "mem";
-			break;
-	}
+	con->debugPrintf("    %s\n", _celInfo.toString().c_str());
 
-	con->debugPrintf("    type: %s, res %d, loop %d, cel %d, bitmap %04x:%04x, color: %d\n",
-		celType.c_str(),
-		_celInfo.resourceId,
-		_celInfo.loopNo,
-		_celInfo.celNo,
-		PRINT_REG(_celInfo.bitmap),
-		_celInfo.color
-	);
 	if (_celObj != nullptr) {
-		con->debugPrintf("    width %d, height %d, scaledWidth %d, scaledHeight %d\n",
+		con->debugPrintf("    width %d, height %d, x-resolution %d, y-resolution %d\n",
 			_celObj->_width,
 			_celObj->_height,
-			_celObj->_scaledWidth,
-			_celObj->_scaledHeight
+			_celObj->_xResolution,
+			_celObj->_yResolution
 		);
 	}
 }
@@ -593,34 +602,32 @@ Common::Rect ScreenItem::getNowSeenRect(const Plane &plane) const {
 	const uint16 scriptHeight = g_sci->_gfxFrameout->getCurrentBuffer().scriptHeight;
 
 	Ratio scaleX, scaleY;
-	if (_scale.signal & kScaleSignalDoScaling32) {
-		if (_scale.signal & kScaleSignalUseVanishingPoint) {
-			int num = _scale.max * (_position.y - plane._vanishingPoint.y) / (scriptWidth - plane._vanishingPoint.y);
-			scaleX = Ratio(num, 128);
-			scaleY = Ratio(num, 128);
-		} else {
-			scaleX = Ratio(_scale.x, 128);
-			scaleY = Ratio(_scale.y, 128);
-		}
+	if (_scale.signal == kScaleSignalManual) {
+		scaleX = Ratio(_scale.x, 128);
+		scaleY = Ratio(_scale.y, 128);
+	} else if (_scale.signal == kScaleSignalVanishingPoint) {
+		int num = _scale.max * (_position.y - plane._vanishingPoint.y) / (scriptWidth - plane._vanishingPoint.y);
+		scaleX = Ratio(num, 128);
+		scaleY = Ratio(num, 128);
 	}
 
 	if (scaleX.getNumerator() == 0 || scaleY.getNumerator() == 0) {
 		return Common::Rect();
 	}
 
-	int16 displaceX = celObj._displace.x;
-	int16 displaceY = celObj._displace.y;
+	int16 originX = celObj._origin.x;
+	int16 originY = celObj._origin.y;
 
 	if (_mirrorX != celObj._mirrorX && _celInfo.type != kCelTypePic) {
-		displaceX = celObj._width - displaceX - 1;
+		originX = celObj._width - originX - 1;
 	}
 
-	if (celObj._scaledWidth != kLowResX || celObj._scaledHeight != kLowResY) {
+	if (celObj._xResolution != kLowResX || celObj._yResolution != kLowResY) {
 		// high resolution coordinates
 
 		if (_useInsetRect) {
-			Ratio scriptToCelX(celObj._scaledWidth, scriptWidth);
-			Ratio scriptToCelY(celObj._scaledHeight, scriptHeight);
+			Ratio scriptToCelX(celObj._xResolution, scriptWidth);
+			Ratio scriptToCelY(celObj._yResolution, scriptHeight);
 			mulru(nsRect, scriptToCelX, scriptToCelY, 0);
 
 			if (nsRect.intersects(celObjRect)) {
@@ -661,14 +668,14 @@ Common::Rect ScreenItem::getNowSeenRect(const Plane &plane) const {
 			}
 		}
 
-		Ratio celToScriptX(scriptWidth, celObj._scaledWidth);
-		Ratio celToScriptY(scriptHeight, celObj._scaledHeight);
+		Ratio celToScriptX(scriptWidth, celObj._xResolution);
+		Ratio celToScriptY(scriptHeight, celObj._yResolution);
 
-		displaceX = (displaceX * scaleX * celToScriptX).toInt();
-		displaceY = (displaceY * scaleY * celToScriptY).toInt();
+		originX = (originX * scaleX * celToScriptX).toInt();
+		originY = (originY * scaleY * celToScriptY).toInt();
 
 		mulinc(nsRect, celToScriptX, celToScriptY);
-		nsRect.translate(_position.x - displaceX, _position.y - displaceY);
+		nsRect.translate(_position.x - originX, _position.y - originY);
 	} else {
 		// low resolution coordinates
 
@@ -681,9 +688,9 @@ Common::Rect ScreenItem::getNowSeenRect(const Plane &plane) const {
 			nsRect.bottom -= 1;
 		}
 
-		displaceX = (displaceX * scaleX).toInt();
-		displaceY = (displaceY * scaleY).toInt();
-		nsRect.translate(_position.x - displaceX, _position.y - displaceY);
+		originX = (originX * scaleX).toInt();
+		originY = (originY * scaleY).toInt();
+		nsRect.translate(_position.x - originX, _position.y - originY);
 
 		if (_mirrorX != celObj._mirrorX && _celInfo.type != kCelTypePic) {
 			nsRect.translate(plane._gameRect.width() - nsRect.width(), 0);

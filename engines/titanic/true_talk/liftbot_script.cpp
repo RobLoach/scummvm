@@ -92,8 +92,8 @@ int LiftbotScript::process(const TTroomScript *roomScript, const TTsentence *sen
 
 	checkItems(roomScript, sentence);
 	int currState = getState();
-	int sentMode = sentence->_field2C;
-	TTtreeResult treeResult;
+	int sentMode = sentence->_category;
+	TTtreeResult treeResult[32];
 
 	if (currState) {
 		setState(0);
@@ -134,7 +134,7 @@ int LiftbotScript::process(const TTroomScript *roomScript, const TTsentence *sen
 
 		case 9:
 			if (sentMode == 10 || g_vm->_trueTalkManager->_quotesTree.search(
-				sentence->_normalizedLine.c_str(), TREE_2, &treeResult, 0, 0) != -1)
+				sentence->_normalizedLine.c_str(), TREE_2, &treeResult[0], 0, 0) != -1)
 				return addDialogueAndState(getDialogueId(210970), 9);
 			break;
 
@@ -180,6 +180,7 @@ ScriptChangedResult LiftbotScript::scriptChanged(const TTroomScript *roomScript,
 			addResponse(getDialogueId(210033));
 		}
 		CTrueTalkManager::setFlags(27, 1);
+		applyResponse();
 		break;
 
 	case 155:
@@ -356,15 +357,17 @@ uint LiftbotScript::getDialsBitset() const {
 
 
 int LiftbotScript::doSentenceEntry(int val1, const int *srcIdP, const TTroomScript *roomScript, const TTsentence *sentence) {
-	static const int ARRAY13[] = {
-		210724, 210735, 210746, 210757, 210758, 210759, 210760,
+	// Responses for each floor when asked "what floor are we on"
+	static const int FLOOR_RESPONSE_IDS[] = {
+		0, 210724, 210735, 210746, 210757, 210758, 210759, 210760,
 		210761, 210762, 210725, 210726, 210727, 210728, 210729,
 		210730, 210731, 210732, 210733, 210734, 210736, 210737,
 		210738, 210739, 210740, 210741, 210742, 210743, 210744,
 		210745, 210747, 210748, 210749, 210750, 210751, 210752,
 		210753, 210754, 210755, 210756
 	};
-	static const int ARRAY14[] = {
+	// Responses for each lift when asked "which lift am I in"
+	static const int LIFT_RESPONSE_IDS[] = {
 		0, 210849, 210850, 210851, 210852, 210838, 210839, 210840, 210841, 0
 	};
 
@@ -424,15 +427,17 @@ int LiftbotScript::doSentenceEntry(int val1, const int *srcIdP, const TTroomScri
 			return 1;
 		break;
 	case 13:
-		selectResponse(ARRAY13[getCurrentFloor()]);
+		// What floor am I on
+		selectResponse(FLOOR_RESPONSE_IDS[getCurrentFloor()]);
 		applyResponse();
 		return 2;
 	case 14:
+		// Which lift am I in
 		stateVal = getState6();
 		if (sentence->contains("elevator") ||
 			(!sentence->contains("lift") && getRandomNumber(100) > 60))
 			stateVal += 4;
-		selectResponse(ARRAY14[stateVal]);
+		selectResponse(LIFT_RESPONSE_IDS[stateVal]);
 		applyResponse();
 		return 2;
 	case 15:
@@ -505,7 +510,7 @@ int LiftbotScript::addResponse1(int index, bool flag, int id) {
 		return 1;
 	} else if (index == getCurrentFloor()) {
 		if (index == 1) {
-			addResponse(30558 - getRandomBit() ? 290 : 0);
+			addResponse(30558 - (getRandomBit() ? 290 : 0));
 			addResponse(getDialogueId(210589));
 		} else {
 			if (index == 39)
@@ -534,7 +539,7 @@ int LiftbotScript::addResponse1(int index, bool flag, int id) {
 
 	if (flag) {
 		if (index == 1) {
-			selectResponse(30558 - getRandomBit() ? 290 : 0);
+			selectResponse(30558 - (getRandomBit() ? 290 : 0));
 		} else if (index == 39) {
 			addResponse(30346);
 		} else {
@@ -580,14 +585,14 @@ int LiftbotScript::sentence1(const TTsentence *sentence) {
 		return 1;
 	}
 
-	int classNum = 1;
+	PassengerClass classNum = FIRST_CLASS;
 	bool classSet = true;
 	if (sentence->localWord("firstclass"))
-		classNum = 1;
+		classNum = FIRST_CLASS;
 	else if (sentence->localWord("secondclass"))
-		classNum = 2;
+		classNum = SECOND_CLASS;
 	else if (sentence->localWord("thirdclass"))
-		classNum = 3;
+		classNum = THIRD_CLASS;
 	else
 		classSet = false;
 
@@ -618,7 +623,7 @@ int LiftbotScript::sentence1(const TTsentence *sentence) {
 	} else if (sentence->localWord("titaniaroom")) {
 		newId = 210723;
 	} else if (sentence->localWord("restaurant")) {
-		if (classNum == 1) {
+		if (classNum == FIRST_CLASS) {
 			newId = 210719;
 			diff = 1;
 		} else {
@@ -650,7 +655,7 @@ int LiftbotScript::sentence1(const TTsentence *sentence) {
 		return 1;
 	}
 
-	if (sentence->_field2C == 4 || sentence->localWord("find")
+	if (sentence->_category == 4 || sentence->localWord("find")
 			|| sentence->contains("get to")) {
 		if (getCurrentFloor() != diff) {
 			selectResponse(diff == 1 ? 210769 : 210764);

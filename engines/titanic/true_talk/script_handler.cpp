@@ -21,9 +21,10 @@
  */
 
 #include "titanic/true_talk/script_handler.h"
+#include "titanic/true_talk/title_engine.h"
 #include "titanic/true_talk/tt_concept.h"
-#include "titanic/true_talk/tt_sentence.h"
 #include "titanic/true_talk/tt_parser.h"
+#include "titanic/true_talk/tt_sentence.h"
 #include "titanic/true_talk/tt_word.h"
 #include "titanic/titanic.h"
 
@@ -32,8 +33,7 @@ namespace Titanic {
 /*------------------------------------------------------------------------*/
 
 CScriptHandler::CScriptHandler(CTitleEngine *owner, int val1, int val2) :
-		_owner(owner), _script(owner->_script), _resources(g_vm->_exeResources),
-		_parser(this), _inputCtr(0), _concept1P(nullptr),
+		_owner(owner), _script(owner->_script), _parser(this), _inputCtr(0), _concept1P(nullptr),
 		_concept2P(nullptr), _concept3P(nullptr), _concept4P(nullptr) {
 	g_vm->_scriptHandler = this;
 	g_vm->_script = _script;

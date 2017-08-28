@@ -28,11 +28,13 @@
 #include "common/array.h"          // for Array
 #include "common/mutex.h"          // for StackLock, Mutex
 #include "common/scummsys.h"       // for int16, uint8, uint32, uint16
-#include "engines/sci/resource.h"  // for ResourceId
+#include "sci/resource.h"          // for ResourceId
 #include "sci/engine/vm_types.h"   // for reg_t, NULL_REG
 #include "sci/video/robot_decoder.h" // for RobotAudioStream
 
 namespace Sci {
+class Console;
+
 #pragma mark AudioChannel
 
 /**
@@ -48,11 +50,6 @@ struct AudioChannel {
 	 * The resource loaded into this channel.
 	 */
 	Resource *resource;
-
-	/**
-	 * Data stream containing the raw audio for the channel.
-	 */
-	Common::SeekableReadStream *resourceStream;
 
 	/**
 	 * The audio stream loaded into this channel. Can cast
@@ -81,12 +78,6 @@ struct AudioChannel {
 	 * The tick when the channel was paused.
 	 */
 	uint32 pausedAtTick;
-
-	/**
-	 * Whether or not the audio in this channel should loop
-	 * infinitely.
-	 */
-	bool loop;
 
 	/**
 	 * The time, in ticks, that the channel fade began.
@@ -155,23 +146,27 @@ enum AudioChannelIndex {
  * engine, since the system mixer does not support all the
  * features of SCI.
  */
-class Audio32 : public Audio::AudioStream {
+class Audio32 : public Audio::AudioStream, public Common::Serializable {
 public:
 	Audio32(ResourceManager *resMan);
 	~Audio32();
+
+	virtual void saveLoadWithSerializer(Common::Serializer &s);
+
+	enum {
+		/**
+		 * The maximum channel volume.
+		 */
+		kMaxVolume = 127,
+
+		kMonitorAudioFlagSci3 = 0x80
+	};
 
 private:
 	ResourceManager *_resMan;
 	Audio::Mixer *_mixer;
 	Audio::SoundHandle _handle;
 	Common::Mutex _mutex;
-
-	enum {
-		/**
-		 * The maximum channel volume.
-		 */
-		kMaxVolume = 127
-	};
 
 #pragma mark -
 #pragma mark AudioStream implementation
@@ -184,10 +179,22 @@ public:
 
 private:
 	/**
+	 * Determines the number of channels that will be mixed together during a
+	 * call to readBuffer.
+	 */
+	int16 getNumChannelsToMix() const;
+
+	/**
+	 * Determines whether or not the given audio channel will be mixed into the
+	 * output stream.
+	 */
+	bool channelShouldMix(const AudioChannel &channel) const;
+
+	/**
 	 * Mixes audio from the given source stream into the
 	 * target buffer using the given rate converter.
 	 */
-	int writeAudioInternal(Audio::AudioStream *const sourceStream, Audio::RateConverter *const converter, Audio::st_sample_t *targetBuffer, const int numSamples, const Audio::st_volume_t leftVolume, const Audio::st_volume_t rightVolume, const bool loop);
+	int writeAudioInternal(Audio::AudioStream *const sourceStream, Audio::RateConverter *const converter, Audio::st_sample_t *targetBuffer, const int numSamples, const Audio::st_volume_t leftVolume, const Audio::st_volume_t rightVolume);
 
 #pragma mark -
 #pragma mark Channel management
@@ -199,6 +206,19 @@ public:
 		Common::StackLock lock(_mutex);
 		return _numActiveChannels;
 	}
+
+	/**
+	 * Gets the number of currently active channels that are playing from
+	 * unlocked resources.
+	 *
+	 * @note In SSCI, this function would actually return the number of channels
+	 * whose audio data were not loaded into memory. In practice, the signal for
+	 * placing audio data into memory was a call to kLock, so since we do not
+	 * follow how SSCI works when it comes to resource management, the lock
+	 * state is used as an (apparently) successful proxy for this information
+	 * instead.
+	 */
+	uint8 getNumUnlockedChannels() const;
 
 	/**
 	 * Finds a channel that is already configured for the
@@ -215,7 +235,13 @@ public:
 	 */
 	int16 findChannelById(const ResourceId resourceId, const reg_t soundNode = NULL_REG) const;
 
+	/**
+	 * Sets or clears a lock on the given resource ID.
+	 */
+	void lockResource(const ResourceId resourceId, const bool lock);
+
 private:
+	typedef Common::Array<ResourceId> LockList;
 	typedef Common::Array<Resource *> UnlockList;
 
 	/**
@@ -246,6 +272,11 @@ private:
 	 * to be unlocked from the main thread.
 	 */
 	UnlockList _resourcesToUnlock;
+
+	/**
+	 * The list of resource IDs that have been locked by game scripts.
+	 */
+	LockList _lockedResourceIds;
 
 	/**
 	 * Gets the audio channel at the given index.
@@ -449,6 +480,11 @@ public:
 	}
 
 	/**
+	 * Restarts playback of the given audio resource.
+	 */
+	uint16 restart(const ResourceId resourceId, const bool autoPlay, const bool loop, const int16 volume, const reg_t soundNode, const bool monitor);
+
+	/**
 	 * Returns the playback position for the given channel
 	 * number, in ticks.
 	 */
@@ -466,8 +502,6 @@ public:
 		Common::StackLock lock(_mutex);
 		setLoop(findChannelById(resourceId, soundNode), loop);
 	}
-
-	reg_t kernelPlay(const bool autoPlay, const int argc, const reg_t *const argv);
 
 private:
 	/**
@@ -501,6 +535,13 @@ public:
 	void setVolume(const ResourceId resourceId, const reg_t soundNode, const int16 volume) {
 		Common::StackLock lock(_mutex);
 		setVolume(findChannelById(resourceId, soundNode), volume);
+	}
+
+	/**
+	 * Sets the master volume for digital audio playback.
+	 */
+	void setMasterVolume(const int16 volume) {
+		_mixer->setVolumeForSoundType(Audio::Mixer::kSFXSoundType, volume * Audio::Mixer::kMaxChannelVolume / kMaxVolume);
 	}
 
 	/**
@@ -585,6 +626,24 @@ private:
 	 * monitoring buffer.
 	 */
 	int _numMonitoredSamples;
+
+#pragma mark -
+#pragma mark Kernel
+public:
+	reg_t kernelPlay(const bool autoPlay, const int argc, const reg_t *const argv);
+	reg_t kernelStop(const int argc, const reg_t *const argv);
+	reg_t kernelPause(const int argc, const reg_t *const argv);
+	reg_t kernelResume(const int argc, const reg_t *const argv);
+	reg_t kernelPosition(const int argc, const reg_t *const argv);
+	reg_t kernelVolume(const int argc, const reg_t *const argv);
+	reg_t kernelMixing(const int argc, const reg_t *const argv);
+	reg_t kernelFade(const int argc, const reg_t *const argv);
+	void kernelLoop(const int argc, const reg_t *const argv);
+
+#pragma mark -
+#pragma mark Debugging
+public:
+	void printAudioList(Console *con) const;
 };
 
 } // End of namespace Sci

@@ -57,7 +57,7 @@ void CSound::preEnterView(CViewItem *newView, bool isNewRoom) {
 	_soundManager.setListenerPosition(xp, yp, zp, cosVal, sinVal, 0, isNewRoom);
 }
 
-bool CSound::isActive(int handle) const {
+bool CSound::isActive(int handle) {
 	if (handle != 0 && handle != -1)
 		return _soundManager.isActive(handle);
 
@@ -159,7 +159,7 @@ int CSound::playSound(const CString &name, CProximity &prox) {
 	if (!waveFile)
 		return -1;
 
-	prox._soundDuration = waveFile->getDuration();
+	prox._soundDuration = waveFile->getDurationTicks();
 	if (prox._soundType != Audio::Mixer::kPlainSoundType)
 		waveFile->_soundType = prox._soundType;
 
@@ -209,7 +209,7 @@ int CSound::playSpeech(CDialogueFile *dialogueFile, int speechId, CProximity &pr
 	if (!waveFile)
 		return -1;
 
-	prox._soundDuration = waveFile->getDuration();
+	prox._soundDuration = waveFile->getDurationTicks();
 	activateSound(waveFile, prox._disposeAfterUse);
 
 	return _soundManager.playSound(*waveFile, prox);

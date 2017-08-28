@@ -422,6 +422,9 @@ reg_t kGetConfig(EngineState *s, int argc, reg_t *argv) {
 	} else if (setting == "jumpto") {
 		// Hoyle 5 startup.
 		s->_segMan->strcpy(data, "");
+	} else if (setting == "deflang") {
+		// MGDX 4-language startup.
+		s->_segMan->strcpy(data, "");
 	} else {
 		error("GetConfig: Unknown configuration setting %s", setting.c_str());
 	}
@@ -457,6 +460,14 @@ reg_t kGetWindowsOption(EngineState *s, int argc, reg_t *argv) {
 		warning("GetWindowsOption: Unknown option %d", windowsOption);
 		return NULL_REG;
 	}
+}
+
+extern Common::String format(const Common::String &source, int argc, const reg_t *argv);
+
+reg_t kPrintDebug(EngineState *s, int argc, reg_t *argv) {
+	const Common::String debugString = s->_segMan->getString(argv[0]);
+	debugC(kDebugLevelGame, "%s", format(debugString, argc - 1, argv + 1).c_str());
+	return s->r_acc;
 }
 
 #endif
@@ -576,10 +587,10 @@ reg_t kPlatform(EngineState *s, int argc, reg_t *argv) {
 
 	switch (operation) {
 	case kPlatformUnknown:
-		// For Mac versions, kPlatform(0) with other args has more functionality
+		// For Mac versions, kPlatform(0) with other args has more functionality. Otherwise, fall through.
 		if (g_sci->getPlatform() == Common::kPlatformMacintosh && argc > 1)
 			return kMacPlatform(s, argc - 1, argv + 1);
-		// Otherwise, fall through
+		// fall through
 	case kPlatformGetPlatform:
 		if (isWindows)
 			return make_reg(0, kSciPlatformWindows);
@@ -609,7 +620,16 @@ reg_t kPlatform32(EngineState *s, int argc, reg_t *argv) {
 		kGetCDDrive    = 3
 	};
 
-	const Operation operation = argc > 0 ? (Operation)argv[0].toSint16() : kGetPlatform;
+	Operation operation;
+	if (getSciVersion() < SCI_VERSION_2_1_MIDDLE) {
+		if (argc == 0 || argv[0].toSint16() == 0) {
+			operation = kGetPlatform;
+		} else {
+			return NULL_REG;
+		}
+	} else {
+		operation = argc > 0 ? (Operation)argv[0].toSint16() : kGetPlatform;
+	}
 
 	switch (operation) {
 	case kGetPlatform:
@@ -630,10 +650,23 @@ reg_t kPlatform32(EngineState *s, int argc, reg_t *argv) {
 	case kGetColorDepth:
 		return make_reg(0, /* 256 color */ 2);
 	case kGetCDSpeed:
+		// The value `4` comes from Rama DOS resource.cfg installed in DOSBox,
+		// and seems to correspond to the highest expected CD speed value
+		return make_reg(0, 4);
 	case kGetCDDrive:
 	default:
-		return make_reg(0, 0);
+		return NULL_REG;
 	}
+}
+
+reg_t kWebConnect(EngineState *s, int argc, reg_t *argv) {
+	const Common::String baseUrl = "https://web.archive.org/web/1996/";
+	const Common::String gameUrl = argc > 0 ? s->_segMan->getString(argv[0]) : "http://www.sierra.com";
+	return make_reg(0, g_system->openUrl(baseUrl + gameUrl));
+}
+
+reg_t kWinExec(EngineState *s, int argc, reg_t *argv) {
+	return NULL_REG;
 }
 #endif
 
